@@ -5,11 +5,11 @@
 #include <numeric>
 #include <fstream>
 
-#include "src/Sound.h"
-#include "src/gateway/ISoundFileGateway.h"
-#include "src/gateway/libsndfile.h"
-#include "src/aquila/filter/MelFilterBank.h"
-#include "src/aquila/transform/Dct.h"
+#include "domain/Sound.h"
+#include "gateway/ISoundFileGateway.h"
+#include "gateway/libsndfile.h"
+#include "aquila/filter/MelFilterBank.h"
+#include "aquila/transform/Dct.h"
 
 #include <fftw3.h>
 
@@ -37,8 +37,8 @@ int main() {
     // DI
     const std::shared_ptr<audio::gateway::ISoundFileGateway> gateway = std::make_shared<audio::gateway::libsndfile>();
 
-    const auto input_file = "/IdeaProjects/brainio/sounds/example_mono.wav";
-    const auto output_file = "/IdeaProjects/brainio/sounds/example_mono_reversed.wav";
+    const auto input_file = "/IdeaProjects/brain-io/sounds/example_mono.wav";
+    const auto output_file = "/IdeaProjects/brain-io/sounds/example_mono_reversed.wav";
 
     const auto sound = gateway->loadSound(input_file);
     if (!sound) {
@@ -102,8 +102,11 @@ int main() {
         channel = std::move(sorted_channel);
     }
 
-    gateway->saveSound(output_file,
-        {std::move(channels), sound->getNumSamples(), sound->getNumChannels(), sound->getSampleRate()});
+    std::cout << "Saving sound\n";
+    if (gateway->saveSound(output_file,
+        {std::move(channels), sound->getNumSamples(), sound->getNumChannels(), sound->getSampleRate()})) {
+        std::cout <<  std::format("Reversed sound saved to {}\n", output_file);
+    }
 
     return 0;
 }

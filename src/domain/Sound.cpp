@@ -1,7 +1,3 @@
-//
-// Created by vscode on 9/8/25.
-//
-
 #include "Sound.h"
 
 namespace audio {

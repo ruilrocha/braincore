@@ -36,7 +36,7 @@ namespace Aquila
      *
      * @param other other filter to be moved from
      */
-    MelFilter::MelFilter(MelFilter&& other):
+    MelFilter::MelFilter(MelFilter&& other) noexcept:
         m_sampleFrequency(other.m_sampleFrequency),
         m_spectrum(std::move(other.m_spectrum))
     {
@@ -49,11 +49,7 @@ namespace Aquila
      * @return reference to assigned value
      */
     MelFilter& MelFilter::operator=(const MelFilter& other)
-    {
-        m_sampleFrequency = other.m_sampleFrequency;
-        m_spectrum = other.m_spectrum;
-        return *this;
-    }
+    = default;
 
     /**
      * Designs the Mel filter and creates triangular spectrum.
@@ -62,18 +58,18 @@ namespace Aquila
      * @param melFilterWidth filter width in Mel scale (eg. 200)
      * @param N filter spectrum size (must be the same as filtered spectrum)
      */
-    void MelFilter::createFilter(std::size_t filterNum,
-                                 FrequencyType melFilterWidth, std::size_t N)
+    void MelFilter::createFilter(const std::size_t filterNum,
+                                 const FrequencyType melFilterWidth, std::size_t N)
     {
         // calculate frequencies in Mel scale
-        FrequencyType melMinFreq = filterNum * melFilterWidth / 2.0;
-        FrequencyType melCenterFreq = melMinFreq + melFilterWidth / 2.0;
-        FrequencyType melMaxFreq = melMinFreq + melFilterWidth;
+        const FrequencyType melMinFreq = static_cast<FrequencyType>(filterNum) * melFilterWidth / 2.0;
+        const FrequencyType melCenterFreq = melMinFreq + melFilterWidth / 2.0;
+        const FrequencyType melMaxFreq = melMinFreq + melFilterWidth;
 
         // convert frequencies to linear scale
-        FrequencyType minFreq = melToLinear(melMinFreq);
-        FrequencyType centerFreq = melToLinear(melCenterFreq);
-        FrequencyType maxFreq = melToLinear(melMaxFreq);
+        const FrequencyType minFreq = melToLinear(melMinFreq);
+        const FrequencyType centerFreq = melToLinear(melCenterFreq);
+        const FrequencyType maxFreq = melToLinear(melMaxFreq);
 
         // generate filter spectrum in linear scale
         generateFilterSpectrum(minFreq, centerFreq, maxFreq, N);
@@ -112,29 +108,28 @@ namespace Aquila
      * @param maxFreq frequency at [3] in linear scale
      * @param N length of the spectrum
      */
-    void MelFilter::generateFilterSpectrum(FrequencyType minFreq,
-                                           FrequencyType centerFreq,
-                                           FrequencyType maxFreq, std::size_t N)
+    void MelFilter::generateFilterSpectrum(const FrequencyType minFreq,
+                                           const FrequencyType centerFreq,
+                                           const FrequencyType maxFreq, const std::size_t N)
     {
         m_spectrum.clear();
         m_spectrum.resize(N, 0.0);
 
         // find spectral peak positions corresponding to frequencies
-        std::size_t minPos = static_cast<std::size_t>(N * minFreq / m_sampleFrequency);
-        std::size_t maxPos = static_cast<std::size_t>(N * maxFreq / m_sampleFrequency);
+        const auto minPos = static_cast<std::size_t>(static_cast<FrequencyType>(N) * minFreq / m_sampleFrequency);
+        auto maxPos = static_cast<std::size_t>(static_cast<FrequencyType>(N) * maxFreq / m_sampleFrequency);
         // limit maxPos not to write out of bounds of vector storage
         maxPos = std::min(maxPos, N - 1);
         if (maxPos <= minPos) {
             return;
         }
 
-        const double max = 1.0;
-
         // outside the triangle spectrum values are 0, guaranteed by
         // earlier call to resize
         for (std::size_t k = minPos; k <= maxPos; ++k)
         {
-            Aquila::FrequencyType currentFreq = (k * m_sampleFrequency) / N;
+            constexpr double max = 1.0;
+            const FrequencyType currentFreq = (static_cast<FrequencyType>(k) * m_sampleFrequency) / static_cast<FrequencyType>(N);
             if (currentFreq < minFreq)
             {
                 continue;

@@ -35,28 +35,28 @@ namespace Aquila
                       FrequencyType melFilterWidth = 200.0,
                       std::size_t bankSize = 24);
 
-        std::vector<double> applyAll(const SpectrumType &frameSpectrum) const;
+        [[nodiscard]] std::vector<double> applyAll(const SpectrumType &frameSpectrum) const;
 
         /**
          * Returns sample frequency of all filters.
          *
          * @return sample frequency in Hz
          */
-        FrequencyType getSampleFrequency() const { return m_sampleFrequency; }
+        [[nodiscard]] FrequencyType getSampleFrequency() const { return m_sampleFrequency; }
 
         /**
          * Returns spectrum size of any filter spectra.
          *
          * @return spectrum size
          */
-        std::size_t getSpectrumLength() const { return N; }
+        [[nodiscard]] std::size_t getSpectrumLength() const { return N; }
 
         /**
          * Returns the number of filters in bank.
          *
          * @return number of filters
          */
-        std::size_t size() const { return m_filters.size(); }
+        [[nodiscard]] std::size_t size() const { return m_filters.size(); }
 
     private:
         /**

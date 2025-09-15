@@ -1,8 +1,7 @@
-//
-// Created by vscode on 9/8/25.
-//
-
 #include "libsndfile.h"
+
+#include <algorithm>
+
 #include "sndfile.h"
 #include <iostream>
 
@@ -30,7 +29,7 @@ namespace audio::gateway {
         return std::make_unique<Sound>(std::move(channels), sfinfo.frames, sfinfo.channels, sfinfo.samplerate);
     }
 
-    void libsndfile::saveSound(const std::string &path, const Sound& sound) {
+    bool libsndfile::saveSound(const std::string &path, const Sound& sound) {
         SF_INFO sfinfo;
         sfinfo.frames = sound.getNumSamples();
         sfinfo.channels = sound.getNumChannels();
@@ -42,6 +41,11 @@ namespace audio::gateway {
             const int frames = sound.getNumSamples();
             const int channelsCount = sound.getNumChannels();
 
+            if (std::ranges::any_of(channels, [](const auto& ch) { return ch.empty(); })) {
+                std::cout << "Error: One or more channels are empty." << std::endl;
+                sf_close(file);
+                return false;
+            }
             // Interleave
             std::vector<float> interleaved(frames * channelsCount);
             for (int i = 0; i < frames; ++i) {
@@ -53,7 +57,9 @@ namespace audio::gateway {
             sf_close(file);
         } else {
             std::cout << "Error creating file " << path << std::endl;
+            return false;
         }
+        return true;
     }
 
 

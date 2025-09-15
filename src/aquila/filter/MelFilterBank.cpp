@@ -27,16 +27,16 @@ namespace Aquila
      * @param melFilterWidth filter width in Mel frequency scale
      * @param bankSize number of filters in the bank
      */
-    MelFilterBank::MelFilterBank(FrequencyType sampleFrequency,
-                                 std::size_t length,
-                                 FrequencyType melFilterWidth,
-                                 std::size_t bankSize):
-        m_filters(), m_sampleFrequency(sampleFrequency), N(length)
+    MelFilterBank::MelFilterBank(const FrequencyType sampleFrequency,
+                                 const std::size_t length,
+                                 const FrequencyType melFilterWidth,
+                                 const std::size_t bankSize):
+        m_sampleFrequency(sampleFrequency), N(length)
     {
         m_filters.reserve(bankSize);
         for (std::size_t i = 0; i < bankSize; ++i)
         {
-            m_filters.push_back(MelFilter(m_sampleFrequency));
+            m_filters.emplace_back(m_sampleFrequency);
             m_filters[i].createFilter(i, melFilterWidth, N);
         }
     }
@@ -49,7 +49,7 @@ namespace Aquila
      */
     std::vector<double> MelFilterBank::applyAll(const SpectrumType& frameSpectrum) const
     {
-        std::vector<double> output(size(), 0.0);
+        std::vector output(size(), 0.0);
         for (std::size_t i = 0; i < size(); ++i)
         {
             output[i] = m_filters[i].apply(frameSpectrum);

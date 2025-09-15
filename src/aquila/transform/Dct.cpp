@@ -16,9 +16,7 @@
  */
 
 #include "Dct.h"
-#include <algorithm>
 #include <cmath>
-#include <iterator>
 
 #ifndef M_PI
 #define M_PI 3.141592653589
@@ -41,12 +39,12 @@ namespace Aquila
     std::vector<double> Dct::dct(const std::vector<double>& data, std::size_t outputLength)
     {
         // zero-initialize output vector
-        std::vector<double> output(outputLength, 0.0);
+        std::vector output(outputLength, 0.0);
         const std::size_t inputLength = data.size();
 
         // DCT scaling factor
-        double c0 = std::sqrt(1.0 / inputLength);
-        double cn = std::sqrt(2.0 / inputLength);
+        const double c0 = std::sqrt(1.0 / static_cast<double>(inputLength));
+        const double cn = std::sqrt(2.0 / static_cast<double>(inputLength));
         // cached cosine values
         double** cosines = getCachedCosines(inputLength, outputLength);
 
@@ -89,8 +87,8 @@ namespace Aquila
             for (std::size_t k = 0; k < inputLength; ++k)
             {
                 // from the definition of DCT-II
-                cosines[n][k] = std::cos((M_PI * (2 * k + 1) * n) /
-                                         (2.0 * inputLength));
+                cosines[n][k] = std::cos(M_PI * static_cast<double>(2 * k + 1) * static_cast<double>(n) /
+                                         (2.0 * static_cast<double>(inputLength)));
             }
         }
         cosineCache[key] = cosines;
@@ -103,10 +101,8 @@ namespace Aquila
      */
     void Dct::clearCosineCache()
     {
-        for (auto it = std::begin(cosineCache); it != std::end(cosineCache); it++)
+        for (auto& [key, cosines] : cosineCache)
         {
-            const auto key = it->first;
-            double** cosines = it->second;
             const std::size_t outputLength = key.second;
             for (std::size_t i = 0; i < outputLength; ++i)
             {

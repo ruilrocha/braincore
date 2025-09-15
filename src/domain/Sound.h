@@ -1,7 +1,3 @@
-//
-// Created by vscode on 9/8/25.
-//
-
 #ifndef CPLUSPLUS_SOUND_H
 #define CPLUSPLUS_SOUND_H
 

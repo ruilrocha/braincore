@@ -39,12 +39,12 @@ namespace Aquila
     /**
      * Library version in an easily comparable format.
      */
-    const long VERSION_NUMBER = 0x300000;
+    constexpr long VERSION_NUMBER = 0x300000;
 
     /**
      * Library version as a string.
      */
-    const char* const VERSION_STRING = "3.0.0-dev";
+    const auto VERSION_STRING = "3.0.0-dev";
 
     /**
      * Sample value type.
