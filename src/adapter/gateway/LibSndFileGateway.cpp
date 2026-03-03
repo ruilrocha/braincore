@@ -15,15 +15,18 @@ std::unique_ptr<Sound> LibSndFileGateway::loadSound(const std::string& path) {
         return nullptr;
     }
 
-    std::vector<double> interleaved(sfinfo.frames * sfinfo.channels);
+    std::vector<double> interleaved(
+        static_cast<std::size_t>(sfinfo.frames) * static_cast<std::size_t>(sfinfo.channels));
     sf_readf_double(file, interleaved.data(), sfinfo.frames);
     sf_close(file);
 
     // De-interleave into per-channel vectors.
-    std::vector<Channel> channels(sfinfo.channels, Channel(sfinfo.frames));
-    for (sf_count_t i = 0; i < sfinfo.frames; ++i) {
-        for (int ch = 0; ch < sfinfo.channels; ++ch) {
-            channels[ch][i] = interleaved[i * sfinfo.channels + ch];
+    const auto num_ch = static_cast<std::size_t>(sfinfo.channels);
+    const auto num_frames = static_cast<std::size_t>(sfinfo.frames);
+    std::vector<Channel> channels(num_ch, Channel(num_frames));
+    for (std::size_t i = 0; i < num_frames; ++i) {
+        for (std::size_t ch = 0; ch < num_ch; ++ch) {
+            channels[ch][i] = interleaved[i * num_ch + ch];
         }
     }
 
@@ -52,16 +55,16 @@ bool LibSndFileGateway::saveSound(const std::string& path,
     }
 
     // Interleave.
-    const int frames = sound.getNumSamples();
-    const int num_ch = sound.getNumChannels();
+    const auto frames = static_cast<std::size_t>(sound.getNumSamples());
+    const auto num_ch = static_cast<std::size_t>(sound.getNumChannels());
     Channel interleaved(frames * num_ch);
-    for (int i = 0; i < frames; ++i) {
-        for (int ch = 0; ch < num_ch; ++ch) {
+    for (std::size_t i = 0; i < frames; ++i) {
+        for (std::size_t ch = 0; ch < num_ch; ++ch) {
             interleaved[i * num_ch + ch] = channels[ch][i];
         }
     }
 
-    sf_writef_double(file, interleaved.data(), frames);
+    sf_writef_double(file, interleaved.data(), static_cast<sf_count_t>(frames));
     sf_close(file);
     return true;
 }

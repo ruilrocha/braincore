@@ -1,0 +1,289 @@
+@startuml brain-io — Class Diagram
+
+title brain-io · Key Classes & Interfaces
+
+skinparam backgroundColor #1e1e2e
+skinparam defaultFontName "JetBrains Mono"
+skinparam defaultFontSize 11
+
+skinparam class {
+    BackgroundColor      #313244
+    BorderColor          #89b4fa
+    FontColor            #cdd6f4
+    HeaderBackgroundColor #45475a
+    AttributeFontColor   #a6e3a1
+    StereotypeFontColor  #f38ba8
+}
+
+skinparam interface {
+    BackgroundColor      #2a2a3e
+    BorderColor          #cba6f7
+    FontColor            #cba6f7
+}
+
+skinparam arrow {
+    Color     #89dceb
+    FontColor #a6e3a1
+    FontSize  9
+}
+
+skinparam note {
+    BackgroundColor #45475a
+    BorderColor     #6c7086
+    FontColor       #cdd6f4
+    FontSize        9
+}
+
+' ── PORT INTERFACES ───────────────────────────────────────────────────
+
+namespace audio.port {
+
+    interface IAnalyser {
+        + compute(block, sr) : vector<double>
+        + analyse(block, sr) : Fingerprints
+        + distance(a, b) : double
+    }
+
+    interface ISearchStrategy {
+        + search(target_fp, blocks,\n  analyser, params,\n  current_idx) : size_t
+    }
+
+    interface ISoundFileGateway {
+        + loadSound(path) : unique_ptr<Sound>
+        + saveSound(path, sound) : bool
+    }
+
+    interface IAudioOutput {
+        + open(sr, channels, buf_size) : bool
+        + write(samples)
+        + close()
+        + isOpen() : bool
+    }
+
+    interface IBlockEffect {
+        + apply(prev, current, amount)\n    : vector<double>
+    }
+}
+
+' ── DOMAIN ENTITIES ───────────────────────────────────────────────────
+
+namespace audio {
+
+    class Brain {
+        - blocks_ : vector<Block>
+        - sources_ : vector<SourceSound>
+        - config_ : BlockConfig
+        - current_block_index_ : size_t
+        --
+        + addSound(sound, name)
+        + findBestMatch(fp, params) : Block&
+        + buildSynapses(num)
+        + jiggle()
+        + depleteUsage(falloff)
+        + activateSound(name, active)
+        + isBlockActive(idx) : bool
+        + analyser() : IAnalyser&
+    }
+
+    class Block <<struct>> {
+        + samples : vector<double>
+        + channel_samples : vector<vector<double>>
+        + fingerprint : vector<double>
+        + secondary_fingerprint : vector<double>
+        + normalised_fingerprint : vector<double>
+        + normalised_secondary_fingerprint : vector<double>
+        + dominant_freq : double
+        + usage : double
+        + source_name : string
+        + synapses : vector<size_t>
+    }
+
+    class Sound {
+        - channels_ : vector<Channel>
+        - sample_rate_ : int
+        --
+        + getChannel(idx) : Channel&
+        + getNumChannels() : int
+        + getNumSamples() : int
+        + getSampleRate() : int
+    }
+
+    class Fingerprints <<struct>> {
+        + primary : vector<double>
+        + secondary : vector<double>
+        + normalised_primary : vector<double>
+        + normalised_secondary : vector<double>
+        + dominant_freq : double
+    }
+
+    class BlockConfig <<struct>> {
+        + block_size : int
+        + overlap : int
+        + window : WindowShape
+    }
+
+    class SearchParams <<struct>> {
+        + alpha : double
+        + stickyness : double
+        + usage_falloff : double
+        + usage_weight : double
+        + blend_ratio : double
+        + n_ratio : double
+        + momentum : double
+        + momentum_decay : double
+        + grain_size / scatter / density : double
+        + spectral_morph : double
+        + stutter_chance : double
+        + envelope_shape / amount
+    }
+
+    class "rng (Random.h)" as Random <<namespace>> {
+        + randomDouble() : double
+        + randomDouble(lo, hi) : double
+        + randomIndex(n) : size_t
+        ' thread_local mt19937
+    }
+}
+
+' ── USE-CASE LAYER ────────────────────────────────────────────────────
+
+namespace audio.usecase {
+
+    class SoundProcessor {
+        - params_ : SearchParams
+        - target_config_ : BlockConfig
+        - spectral_morph_ : shared_ptr<IBlockEffect>
+        --
+        + process(brain, target) : Sound
+    }
+
+    class StreamProcessor {
+        - params_ : SearchParams
+        - target_config_ : BlockConfig
+        - output_ : shared_ptr<IAudioOutput>
+        - spectral_morph_ : shared_ptr<IBlockEffect>
+        - prev_block_ : vector<double>
+        - running_ : atomic<bool>
+        --
+        + stream(brain, target) : bool
+        + streamInfinite(brain, sr, ch)
+        + stop()
+        - applyEffects(src, bs) : vector<double>
+        - outputBlock(channels)
+    }
+
+    class "effects (EffectHelpers)" as EffectHelpers <<namespace>> {
+        + granularScatter(src, bs, gs, scatter, density)
+        + applyGrainEnvelope(grain)
+        + extractGrain(src, gs, offset)
+        + applyStutter(samples, chance, count)
+        + applyEnvelope(samples, shape, amount)
+    }
+}
+
+' ── ADAPTERS ──────────────────────────────────────────────────────────
+
+namespace audio.adapter.analysis {
+    class MfccAnalyser {
+        - num_mfcc_ : int
+        - num_fft_bins_ : int
+        --
+        + compute(block, sr) : vector<double>
+        + analyse(block, sr) : Fingerprints
+        + distance(a, b) : double
+    }
+}
+
+namespace audio.adapter.search {
+    class ClosestSearch
+    class ReverseSearch
+    class SynapticSearch {
+        - num_synapses_ : size_t
+    }
+    class RandomSearch
+    class WeightedRandomSearch {
+        - temperature_ : double
+    }
+    class MarkovChainSearch {
+        - temperature_ : double
+        - num_synapses_ : size_t
+    }
+    class MomentumSearch {
+        - velocity_ : vector<double>
+        - prev_fp_ : vector<double>
+    }
+
+    class "SearchUtils" as SearchUtils <<namespace>> {
+        + stickify(...)
+        + applyUsage(...)
+        + fullScore(...)
+    }
+}
+
+namespace audio.adapter.effects {
+    class FftwSpectralMorph {
+        + apply(prev, current, amount)
+    }
+}
+
+namespace audio.adapter.gateway {
+    class LibSndFileGateway {
+        + loadSound(path)
+        + saveSound(path, sound)
+    }
+}
+
+namespace audio.adapter.playback {
+    class MiniaudioOutput {
+        - ring_ : vector<float>
+        - ring_read_ / ring_write_ : size_t
+        - ring_mutex_ : mutex
+        - channels_ : int
+        - open_ : atomic<bool>
+        --
+        + open(sr, ch, buf)
+        + write(samples)
+        + close()
+        + fillBuffer(output, frames)
+    }
+}
+
+' ── RELATIONSHIPS ─────────────────────────────────────────────────────
+
+' Implements
+audio.adapter.analysis.MfccAnalyser      ..|> audio.port.IAnalyser
+audio.adapter.search.ClosestSearch       ..|> audio.port.ISearchStrategy
+audio.adapter.search.ReverseSearch       ..|> audio.port.ISearchStrategy
+audio.adapter.search.SynapticSearch      ..|> audio.port.ISearchStrategy
+audio.adapter.search.RandomSearch        ..|> audio.port.ISearchStrategy
+audio.adapter.search.WeightedRandomSearch ..|> audio.port.ISearchStrategy
+audio.adapter.search.MarkovChainSearch   ..|> audio.port.ISearchStrategy
+audio.adapter.search.MomentumSearch      ..|> audio.port.ISearchStrategy
+audio.adapter.effects.FftwSpectralMorph  ..|> audio.port.IBlockEffect
+audio.adapter.gateway.LibSndFileGateway  ..|> audio.port.ISoundFileGateway
+audio.adapter.playback.MiniaudioOutput   ..|> audio.port.IAudioOutput
+
+' Brain uses ports
+audio.Brain ..> audio.port.IAnalyser       : uses
+audio.Brain ..> audio.port.ISearchStrategy : uses
+audio.Brain "1" *-- "0..*" audio.Block     : owns
+
+' Use-cases use domain
+audio.usecase.SoundProcessor --> audio.Brain            : process via
+audio.usecase.SoundProcessor ..> audio.port.IBlockEffect : spectral_morph
+audio.usecase.SoundProcessor ..> audio.usecase.EffectHelpers : uses
+
+audio.usecase.StreamProcessor --> audio.Brain             : findBestMatch
+audio.usecase.StreamProcessor ..> audio.port.IAudioOutput  : writes
+audio.usecase.StreamProcessor ..> audio.port.IBlockEffect  : spectral_morph
+audio.usecase.StreamProcessor ..> audio.usecase.EffectHelpers : uses
+
+' Adapter internals
+audio.adapter.analysis.MfccAnalyser ..> audio.Fingerprints : returns
+audio.adapter.search.ClosestSearch  ..> audio.adapter.search.SearchUtils : uses
+audio.adapter.search.WeightedRandomSearch ..> audio.adapter.search.SearchUtils : uses
+audio.adapter.search.MarkovChainSearch ..> audio.adapter.search.SearchUtils : uses
+audio.adapter.search.MomentumSearch ..> audio.adapter.search.SearchUtils : uses
+
+@enduml
+

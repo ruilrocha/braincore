@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 23)
 
 find_package(SndFile REQUIRED)
 find_package(FFTW3 REQUIRED)
+find_package(miniaudio REQUIRED)
 
 file(GLOB_RECURSE AQUILA "src/aquila/*.cpp" "src/aquila/*.h")
 
@@ -21,14 +22,21 @@ add_executable(brainio
         src/domain/BlockConfig.h
         src/domain/WindowFunction.h
         src/domain/Fingerprints.h
+        src/domain/Random.h
         src/domain/constants.h
         src/domain/port/IAnalyser.h
         src/domain/port/ISoundFileGateway.h
         src/domain/port/ISearchStrategy.h
+        src/domain/port/IBlockEffect.h
+        src/domain/port/IAudioOutput.h
 
         # Use-case layer
         src/usecase/SoundProcessor.cpp
         src/usecase/SoundProcessor.h
+        src/usecase/StreamProcessor.cpp
+        src/usecase/StreamProcessor.h
+        src/usecase/EffectHelpers.cpp
+        src/usecase/EffectHelpers.h
 
         # Adapters (outermost layer)
         src/adapter/analysis/MfccAnalyser.cpp
@@ -49,8 +57,14 @@ add_executable(brainio
         src/adapter/search/MarkovChainSearch.h
         src/adapter/search/MomentumSearch.cpp
         src/adapter/search/MomentumSearch.h
-        src/adapter/search/TopNPoolSearch.cpp
-        src/adapter/search/TopNPoolSearch.h
+
+        # Effects adapters
+        src/adapter/effects/FftwSpectralMorph.cpp
+        src/adapter/effects/FftwSpectralMorph.h
+
+        # Playback adapters
+        src/adapter/playback/MiniaudioOutput.cpp
+        src/adapter/playback/MiniaudioOutput.h
 
         # Shared adapter utilities
         src/adapter/search/SearchUtils.h
@@ -61,4 +75,12 @@ add_executable(brainio
 # Inject the project root directory so main.cpp can resolve relative paths.
 target_compile_definitions(brainio PRIVATE PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 
-target_link_libraries(brainio SndFile::sndfile fftw::fftw)
+target_link_libraries(brainio SndFile::sndfile fftw::fftw miniaudio::miniaudio)
+
+# Platform audio frameworks are linked transitively by the miniaudio Conan package.
+# On Linux, pthreads and dl may still be needed:
+if(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(brainio Threads::Threads dl m)
+endif()
+

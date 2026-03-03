@@ -67,11 +67,6 @@ struct SearchParams {
     /// 1.0 = no decay, 0.0 = instant stop.
     double momentum_decay = 0.95;
 
-    // ── Pool search ────────────────────────────────────────────────────
-
-    /// Number of top candidates to consider in pool-based search.
-    /// The final selection is randomised within this pool.
-    int pool_size = 5;
 
     // ── Granular post-processing ───────────────────────────────────────
 
@@ -93,6 +88,29 @@ struct SearchParams {
     /// matched blocks in the frequency domain.
     /// 0.0 = no morphing (hard cuts), 1.0 = full spectral interpolation.
     double spectral_morph = 0.0;
+
+    // ── Stutter / repeat ───────────────────────────────────────────────
+
+    /// Probability that a block triggers a stutter effect [0.0, 1.0].
+    /// 0.0 = never stutter, 1.0 = always stutter.
+    double stutter_chance = 0.0;
+
+    /// Number of times the stutter sub-region repeats [2, 8].
+    int stutter_count = 2;
+
+    // ── Envelope shaping ───────────────────────────────────────────────
+
+    /// Per-block amplitude envelope [0, 4]:
+    ///   0 = none (flat)
+    ///   1 = exponential decay (punch + fade)
+    ///   2 = reverse exponential (swell up)
+    ///   3 = tremolo (amplitude modulation)
+    ///   4 = pluck (sharp attack, fast decay)
+    int envelope_shape = 0;
+
+    /// Envelope intensity [0.0, 1.0]: blends between flat and full envelope.
+    /// 0.0 = no effect, 1.0 = full envelope.
+    double envelope_amount = 0.0;
 };
 
 } // namespace audio

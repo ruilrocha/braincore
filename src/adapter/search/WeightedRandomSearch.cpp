@@ -2,11 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <numeric>
 #include <vector>
 
 #include "SearchUtils.h"
+#include "../../domain/Random.h"
 #include "../../domain/port/IAnalyser.h"
 
 namespace audio::adapter::search {
@@ -33,19 +33,9 @@ std::size_t WeightedRandomSearch::search(
     }
 
     // 2. Convert to weights: w_i = exp(-dist_i / temperature).
-    //    Softmax-style to avoid numerical issues.
-    const double max_d = *std::max_element(distances.begin(), distances.end());
+    //    Softmax-style: shift by min to avoid numerical issues.
+    const double min_d = *std::ranges::min_element(distances);
     std::vector<double> weights(n);
-    for (std::size_t i = 0; i < n; ++i) {
-        // Negate distance so closer = higher weight.
-        weights[i] = std::exp(-(distances[i] - max_d) / temperature_);
-    }
-
-    // Wait — we want closer blocks to be more likely, so we invert:
-    // Actually exp(-d/T) already gives higher weight to smaller d.
-    // But we subtracted max_d, which means the largest distance gets weight 1.
-    // We need: exp(-(d - min_d) / T) so minimum distance gets weight 1.
-    const double min_d = *std::min_element(distances.begin(), distances.end());
     for (std::size_t i = 0; i < n; ++i) {
         weights[i] = std::exp(-(distances[i] - min_d) / std::max(temperature_, 1e-10));
     }
@@ -54,7 +44,7 @@ std::size_t WeightedRandomSearch::search(
     const double total = std::accumulate(weights.begin(), weights.end(), 0.0);
     if (total <= 0.0) {
         // Fallback: uniform random.
-        const std::size_t idx = static_cast<std::size_t>(std::rand()) % n;
+        const std::size_t idx = rng::randomIndex(n);
         SearchUtils::applyUsage(blocks, idx, params.usage_falloff);
         return idx;
     }
@@ -63,7 +53,7 @@ std::size_t WeightedRandomSearch::search(
     for (auto& w : weights) w /= total;
 
     // 4. Sample from the distribution.
-    const double r = static_cast<double>(std::rand()) / static_cast<double>(RAND_MAX);
+    const double r = rng::randomDouble();
     double cumulative = 0.0;
     std::size_t selected = n - 1;
     for (std::size_t i = 0; i < n; ++i) {

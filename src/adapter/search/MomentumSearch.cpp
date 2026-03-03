@@ -1,6 +1,5 @@
 #include "MomentumSearch.h"
 
-#include <cmath>
 #include <limits>
 
 #include "SearchUtils.h"

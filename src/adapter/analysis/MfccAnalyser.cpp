@@ -25,13 +25,13 @@ namespace {
  */
 struct FftResult {
     Aquila::SpectrumType spectrum;
-    std::vector<double>  magnitude_bins;  // |bin[k]|
-    int                  half_n;
+    std::vector<double>  magnitude_bins;
+    std::size_t          half_n;
 };
 
 FftResult runFft(const std::vector<double>& block) {
-    const int N = static_cast<int>(block.size());
-    const int half = N / 2 + 1;
+    const auto N = static_cast<int>(block.size());
+    const auto half = block.size() / 2 + 1;
 
     std::vector<double> buf(block.begin(), block.end());
 
@@ -42,7 +42,7 @@ FftResult runFft(const std::vector<double>& block) {
 
     Aquila::SpectrumType spectrum(half);
     std::vector<double> mag(half);
-    for (int k = 0; k < half; ++k) {
+    for (std::size_t k = 0; k < half; ++k) {
         spectrum[k] = std::complex<double>(out[k][0], out[k][1]);
         mag[k] = std::sqrt(out[k][0] * out[k][0] + out[k][1] * out[k][1]);
     }
@@ -103,13 +103,14 @@ Fingerprints MfccAnalyser::analyse(const std::vector<double>& block,
     fp.secondary.resize(target_bins);
 
     if (target_bins >= mag.size()) {
-        std::copy(mag.begin(), mag.end(), fp.secondary.begin());
+        std::ranges::copy(mag, fp.secondary.begin());
     } else {
         const double ratio = static_cast<double>(mag.size()) /
                              static_cast<double>(target_bins);
         for (std::size_t i = 0; i < target_bins; ++i) {
-            const auto start = static_cast<std::size_t>(i * ratio);
-            const auto end   = static_cast<std::size_t>((i + 1) * ratio);
+            const auto di = static_cast<double>(i);
+            const auto start = static_cast<std::size_t>(di * ratio);
+            const auto end   = static_cast<std::size_t>((di + 1.0) * ratio);
             double sum = 0.0;
             for (std::size_t j = start; j < end && j < mag.size(); ++j) {
                 sum += mag[j];

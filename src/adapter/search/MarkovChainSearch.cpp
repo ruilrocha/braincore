@@ -2,11 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <limits>
 #include <numeric>
 
 #include "SearchUtils.h"
+#include "../../domain/Random.h"
 #include "../../domain/port/IAnalyser.h"
 
 namespace audio::adapter::search {
@@ -73,7 +73,7 @@ std::size_t MarkovChainSearch::search(
     for (auto& p : probs) p /= total;
 
     // 3. Sample from the distribution.
-    const double r = static_cast<double>(std::rand()) / static_cast<double>(RAND_MAX);
+    const double r = rng::randomDouble();
     double cumulative = 0.0;
     std::size_t selected_synapse = limit - 1;
     for (std::size_t s = 0; s < limit; ++s) {

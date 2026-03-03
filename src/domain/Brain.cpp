@@ -1,10 +1,11 @@
 #include "Brain.h"
 
 #include <algorithm>
-#include <cstdlib>
+#include <ranges>
 #include <stdexcept>
 #include <utility>
 
+#include "Random.h"
 #include "WindowFunction.h"
 
 namespace audio {
@@ -14,7 +15,7 @@ Brain::Brain(std::shared_ptr<port::IAnalyser>      analyser,
              BlockConfig config)
     : analyser_(std::move(analyser)),
       search_(std::move(search)),
-      config_(std::move(config)) {}
+      config_(config) {}
 
 // ── Ingestion ──────────────────────────────────────────────────────────
 
@@ -93,12 +94,9 @@ void Brain::activateSound(const std::string& filename, bool active) {
 }
 
 bool Brain::isBlockActive(const std::size_t index) const {
-    for (const auto& s : sources_) {
-        if (index >= s.start && index < s.end && s.enabled) {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::any_of(sources_, [index](const auto& s) {
+        return index >= s.start && index < s.end && s.enabled;
+    });
 }
 
 // ── Search ─────────────────────────────────────────────────────────────
@@ -135,12 +133,10 @@ void Brain::buildSynapses(const std::size_t num_synapses) {
             scored.emplace_back(j, d);
         }
 
-        std::partial_sort(scored.begin(),
-                          scored.begin() + static_cast<std::ptrdiff_t>(k),
-                          scored.end(),
-                          [](const auto& a, const auto& b) {
-                              return a.second < b.second;
-                          });
+        std::ranges::partial_sort(scored, scored.begin() + static_cast<std::ptrdiff_t>(k),
+                                  [](const auto& a, const auto& b) {
+                                      return a.second < b.second;
+                                  });
 
         blocks_[i].synapses.clear();
         blocks_[i].synapses.reserve(k);
@@ -154,7 +150,7 @@ void Brain::buildSynapses(const std::size_t num_synapses) {
 
 void Brain::jiggle() {
     if (!blocks_.empty()) {
-        current_block_index_ = static_cast<std::size_t>(std::rand()) % blocks_.size();
+        current_block_index_ = rng::randomIndex(blocks_.size());
     } else {
         current_block_index_ = 0;
     }

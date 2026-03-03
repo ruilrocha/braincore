@@ -1,8 +1,7 @@
 #include "RandomSearch.h"
 
-#include <cstdlib>
-
 #include "SearchUtils.h"
+#include "../../domain/Random.h"
 
 namespace audio::adapter::search {
 
@@ -16,8 +15,7 @@ std::size_t RandomSearch::search(
     if (blocks.empty()) return 0;
 
     // Pure random selection — no fingerprint comparison.
-    const std::size_t idx =
-        static_cast<std::size_t>(std::rand()) % blocks.size();
+    const std::size_t idx = rng::randomIndex(blocks.size());
 
     SearchUtils::applyUsage(blocks, idx, params.usage_falloff);
 
