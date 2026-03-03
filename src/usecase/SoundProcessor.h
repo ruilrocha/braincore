@@ -27,7 +27,7 @@ public:
      * @param target_config  Block segmentation config for the target sound.
      * @param spectral_morph Optional spectral morph effect adapter.
      */
-    explicit SoundProcessor(SearchParams params = {},
+    explicit SoundProcessor(const SearchParams &params = {},
                             BlockConfig  target_config = {},
                             std::shared_ptr<port::IBlockEffect> spectral_morph = nullptr);
 

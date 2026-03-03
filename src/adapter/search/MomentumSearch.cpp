@@ -48,7 +48,7 @@ std::size_t MomentumSearch::search(
         search_target[i] = target_fp[i] * (1.0 - mom) + predicted * mom;
     }
 
-    // ── Find closest block to the blended search target ────────────────
+    // ── Find the closest block to the blended search target ────────────────
     double best_score = std::numeric_limits<double>::max();
     std::size_t best_idx = 0;
 

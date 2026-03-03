@@ -26,7 +26,7 @@ std::size_t MarkovChainSearch::search(
 
     const auto& current = blocks[current_block_index];
 
-    // Fall back to closest search if no synapses are available.
+    // Fall back to the closest search if no synapses are available.
     if (current.synapses.empty()) {
         double best = std::numeric_limits<double>::max();
         std::size_t best_idx = 0;

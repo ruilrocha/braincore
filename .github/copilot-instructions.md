@@ -198,7 +198,7 @@ main.cpp                                ← Composition Root (wires adapters →
 ### `src/adapter/playback/` — Playback Adapters
 | File | Description |
 |------|-------------|
-| `MiniaudioOutput.h / .cpp` | Implements `IAudioOutput` using miniaudio. Ring buffer between caller and audio callback thread. |
+| `MiniaudioOutput.h / .cpp` | Implements `IAudioOutput` using miniaudio. Lock-free SPSC ring buffer with atomic indices and condition-variable back-pressure between producer and audio callback thread. |
 
 ### `src/aquila/` — In-Tree DSP Library
 | File | Description |
@@ -230,6 +230,10 @@ All parameters are designed to be bound to UI sliders/knobs:
 | `grain_size` | [0.01, 1.0] | 1.0 | Granular: grain size as fraction of block. |
 | `grain_scatter` | [0.0, 1.0] | 0.0 | Granular: random temporal offset. |
 | `grain_density` | [0.1, 4.0] | 1.0 | Granular: overlap density. |
+| `grain_size_variation` | [0.0, 1.0] | 0.0 | Granular: per-grain random size deviation. |
+| `grain_amp_variation` | [0.0, 1.0] | 0.0 | Granular: per-grain random amplitude scaling. |
+| `grain_pitch_jitter` | [0.0, 1.0] | 0.0 | Granular: per-grain playback-speed variation. |
+| `grain_hop_randomness` | [0.0, 1.0] | 0.0 | Granular: randomise base hop positions. |
 | `spectral_morph` | [0.0, 1.0] | 0.0 | Cross-fade between consecutive blocks with RMS matching. |
 | `stutter_chance` | [0.0, 1.0] | 0.0 | Probability of triggering a stutter effect. |
 | `stutter_count` | [2, 8] | 2 | Number of stutter repetitions. |
@@ -263,11 +267,15 @@ All parameters are designed to be bound to UI sliders/knobs:
 11. **EffectHelpers** — Shared effect functions (granularScatter, applyStutter,
     applyEnvelope) used by both SoundProcessor and StreamProcessor.
 12. **Granular post-processing** — Hann-enveloped micro-grains with scatter,
-    density control, and overlap-add normalisation.
+    density control, per-grain stochastic variation (size, amplitude, pitch
+    jitter, hop randomness), and overlap-add normalisation.
 13. **Spectral morphing** — RMS-matched cross-fade between consecutive matched
     blocks for smooth timbral transitions (via IBlockEffect port).
-14. **Real-time streaming** — StreamProcessor uses IAudioOutput port with a ring
-    buffer for real-time playback. Supports target-driven and infinite modes.
+14. **Real-time streaming** — StreamProcessor uses IAudioOutput port with a
+    lock-free SPSC ring buffer for real-time playback. The ring buffer uses
+    power-of-two sizing with atomic read/write indices; the producer sleeps
+    on a condition variable when full (no busy-wait). Supports target-driven
+    and infinite modes.
 15. **Infinite generative mode** — StreamProcessor walks through timbral space
     using an evolving search fingerprint with random drift, producing endless
     generative soundscapes.
@@ -283,7 +291,9 @@ All parameters are designed to be bound to UI sliders/knobs:
 ## Additional Notes
 - **Dependencies:** Managed via Conan and `conandata.yml`.
 - **Do not manually edit files in `build/` or `cmake-build-debug/` directories.**
-- **Adding a brain source:** add the `.wav` path to the `brain_paths` vector in `main.cpp`.
+- **Adding a brain source:** use `-i <path>` for individual files or `-d <dir>` to
+  load all audio files in a directory. Supported formats: WAV, FLAC, OGG, AIF/AIFF,
+  W64, RF64, RAW, CAF, MP3.
 - **Changing search strategy:** replace `ClosestSearch` with any other search adapter
   in `main.cpp` (one-line swap). For `SynapticSearch` or `MarkovChainSearch`, call
   `brain.buildSynapses()` after loading all sounds.

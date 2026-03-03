@@ -19,14 +19,14 @@ struct WindowFunction {
      * Multiply @p samples by the chosen window shape in-place.
      * If shape is Rectangle the data is left untouched (identity window).
      */
-    static void apply(std::vector<double>& samples, WindowShape shape) {
+    static void apply(std::vector<double>& samples, const WindowShape shape) {
         if (shape == WindowShape::Rectangle || samples.empty()) return;
 
         const auto N = static_cast<double>(samples.size());
-        const double pi2 = 2.0 * std::numbers::pi;
+        constexpr double pi2 = 2.0 * std::numbers::pi;
 
         for (std::size_t n = 0; n < samples.size(); ++n) {
-            const double nd = static_cast<double>(n);
+            const auto nd = static_cast<double>(n);
             double w = 1.0;
 
             switch (shape) {

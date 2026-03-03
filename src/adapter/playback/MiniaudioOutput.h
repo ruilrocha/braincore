@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <mutex>
 #include <vector>
@@ -12,10 +13,13 @@ namespace audio::adapter::playback {
 /**
  * Real-time audio output using the miniaudio library.
  *
- * Internally runs a ring buffer between the caller (which pushes blocks
- * via write()) and the miniaudio audio callback (which drains them).
- * The ring buffer is protected by a lightweight spinlock to keep the
- * audio thread wait-free in the common case.
+ * Internally runs a lock-free SPSC (single-producer, single-consumer)
+ * ring buffer between the caller (which pushes blocks via write()) and
+ * the miniaudio audio callback (which drains them).
+ *
+ * The ring buffer uses power-of-two sizing with atomic indices so the
+ * audio callback never blocks.  The producer sleeps on a condition
+ * variable when the buffer is full, avoiding CPU-burning busy-waits.
  */
 class MiniaudioOutput final : public port::IAudioOutput {
 public:
@@ -31,21 +35,28 @@ public:
     void close() override;
     [[nodiscard]] bool isOpen() const override;
 
-    // Called by the miniaudio callback — do not call directly.
+    /// Called by the miniaudio callback — do not call directly.
     void fillBuffer(float* output, std::size_t frame_count);
 
 private:
+    /// Round up to the next power of two.
+    static std::size_t nextPow2(std::size_t v);
+
     struct Impl;
     Impl* impl_ = nullptr;
 
-    // Ring buffer of float samples (interleaved).
-    std::vector<float> ring_;
-    std::size_t        ring_read_  = 0;
-    std::size_t        ring_write_ = 0;
-    std::size_t        ring_size_  = 0;
-    std::mutex         ring_mutex_;
+    // Lock-free SPSC ring buffer of float samples (interleaved).
+    std::vector<float>          ring_;
+    std::atomic<std::size_t>    ring_read_{0};
+    std::atomic<std::size_t>    ring_write_{0};
+    std::size_t                 ring_mask_ = 0;   ///< ring_size - 1 (power-of-two mask).
+    std::size_t                 ring_size_ = 0;
 
-    int  channels_    = 0;
+    // Condition variable for producer back-pressure (never touched by audio callback lock).
+    std::mutex                  wait_mutex_;
+    std::condition_variable     ring_not_full_;
+
+    int  channels_ = 0;
     std::atomic<bool> open_{false};
 };
 

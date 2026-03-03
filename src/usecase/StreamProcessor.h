@@ -66,8 +66,8 @@ private:
     std::vector<double> applyEffects(const std::vector<double>& src,
                                       std::size_t block_size);
 
-    /// Push a multi-channel block to the audio output (interleaved).
-    void outputBlock(const std::vector<std::vector<double>>& channel_blocks);
+    /// Push a multichannel block to the audio output (interleaved).
+    void outputBlock(const std::vector<std::vector<double>>& channel_blocks) const;
 
     SearchParams params_;
     BlockConfig  target_config_;

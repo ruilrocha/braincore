@@ -32,25 +32,76 @@ std::vector<double> extractGrain(const std::vector<double>& src,
     return grain;
 }
 
+// ── Pitch-jittered grain extraction ────────────────────────────────────
+
+static std::vector<double> extractPitchJitteredGrain(
+    const std::vector<double>& src,
+    const std::size_t grain_size,
+    const std::size_t offset,
+    const double speed) {
+
+    // Determine how many source samples we need to read at `speed`.
+    const auto src_len = static_cast<std::size_t>(
+        static_cast<double>(grain_size) * speed);
+    if (src_len == 0) return {static_cast<double>(grain_size), 0.0};
+
+    std::vector<double> grain(grain_size);
+    const auto src_size = src.size();
+
+    for (std::size_t i = 0; i < grain_size; ++i) {
+        // Map output sample i to a fractional source position.
+        const double src_pos = static_cast<double>(i) * speed;
+        const auto idx0 = static_cast<std::size_t>(src_pos);
+        const double frac = src_pos - static_cast<double>(idx0);
+
+        const std::size_t s0 = (offset + idx0) % src_size;
+        const std::size_t s1 = (offset + idx0 + 1) % src_size;
+
+        // Linear interpolation.
+        grain[i] = src[s0] * (1.0 - frac) + src[s1] * frac;
+    }
+
+    applyGrainEnvelope(grain);
+    return grain;
+}
+
 // ── Granular scatter ───────────────────────────────────────────────────
 
 std::vector<double> granularScatter(const std::vector<double>& src,
                                      const std::size_t block_size,
                                      const double grain_size_f,
                                      const double scatter,
-                                     const double density) {
-    const auto gs = static_cast<std::size_t>(
+                                     const double density,
+                                     const double size_variation,
+                                     const double amp_variation,
+                                     const double pitch_jitter,
+                                     const double hop_randomness) {
+    const auto base_gs = static_cast<std::size_t>(
         std::clamp(grain_size_f, 0.01, 1.0) * static_cast<double>(block_size));
-    if (gs == 0 || gs >= block_size) return src;
+    if (base_gs == 0 || base_gs >= block_size) return src;
 
     std::vector<double> output(block_size, 0.0);
     std::vector<double> weight(block_size, 0.0);
 
-    const auto hop = static_cast<std::size_t>(
-        std::max(1.0, static_cast<double>(gs) / std::max(density, 0.1)));
+    const auto base_hop = static_cast<std::size_t>(
+        std::max(1.0, static_cast<double>(base_gs) / std::max(density, 0.1)));
 
-    for (std::size_t pos = 0; pos < block_size; pos += hop) {
-        const auto max_off = static_cast<int>(src.size() - gs);
+    // Use a double accumulator for position to handle fractional hop randomness.
+    double pos_accum = 0.0;
+
+    while (static_cast<std::size_t>(pos_accum) < block_size) {
+        const auto pos = static_cast<std::size_t>(pos_accum);
+
+        // ── Per-grain random size ──────────────────────────────────────
+        std::size_t gs = base_gs;
+        if (size_variation > 0.0) {
+            const double var = 1.0 + size_variation * (rng::randomDouble() - 0.5) * 2.0;
+            gs = std::clamp(static_cast<std::size_t>(static_cast<double>(base_gs) * var),
+                            std::size_t{4}, block_size);
+        }
+
+        // ── Per-grain scatter offset ───────────────────────────────────
+        const auto max_off = static_cast<int>(src.size() > gs ? src.size() - gs : 0);
         auto offset = static_cast<int>(pos);
         if (scatter > 0.0 && max_off > 0) {
             const auto jitter = static_cast<int>(
@@ -59,12 +110,41 @@ std::vector<double> granularScatter(const std::vector<double>& src,
             offset = std::clamp(offset + jitter, 0, max_off);
         }
 
-        auto grain = extractGrain(src, gs, static_cast<std::size_t>(offset));
+        // ── Per-grain pitch jitter (playback speed variation) ──────────
+        double speed = 1.0;
+        if (pitch_jitter > 0.0) {
+            speed = 1.0 + pitch_jitter * 0.5 * (rng::randomDouble() - 0.5) * 2.0;
+            speed = std::clamp(speed, 0.5, 2.0);
+        }
 
+        // ── Extract grain (with or without pitch shift) ────────────────
+        std::vector<double> grain;
+        if (std::abs(speed - 1.0) > 1e-4) {
+            grain = extractPitchJitteredGrain(src, gs, static_cast<std::size_t>(offset), speed);
+        } else {
+            grain = extractGrain(src, gs, static_cast<std::size_t>(offset));
+        }
+
+        // ── Per-grain amplitude variation ──────────────────────────────
+        if (amp_variation > 0.0) {
+            const double amp = std::max(0.0,
+                1.0 + amp_variation * (rng::randomDouble() - 0.5) * 2.0);
+            for (auto& s : grain) s *= amp;
+        }
+
+        // ── Overlap-add ────────────────────────────────────────────────
         for (std::size_t i = 0; i < gs && pos + i < block_size; ++i) {
             output[pos + i] += grain[i];
             weight[pos + i] += 1.0;
         }
+
+        // ── Advance position with optional hop randomness ──────────────
+        auto hop = static_cast<double>(base_hop);
+        if (hop_randomness > 0.0) {
+            hop *= 1.0 + hop_randomness * (rng::randomDouble() - 0.5) * 2.0;
+            hop = std::max(hop, 1.0);
+        }
+        pos_accum += hop;
     }
 
     for (std::size_t i = 0; i < block_size; ++i) {

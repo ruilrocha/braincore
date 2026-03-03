@@ -21,18 +21,18 @@ inline std::mt19937& engine() {
 
 /// Random double in [0.0, 1.0).
 inline double randomDouble() {
-    static thread_local std::uniform_real_distribution<double> dist(0.0, 1.0);
+    thread_local std::uniform_real_distribution dist(0.0, 1.0);
     return dist(engine());
 }
 
 /// Random double in [lo, hi).
-inline double randomDouble(double lo, double hi) {
-    std::uniform_real_distribution<double> dist(lo, hi);
+inline double randomDouble(const double lo, const double hi) {
+    std::uniform_real_distribution dist(lo, hi);
     return dist(engine());
 }
 
 /// Random index in [0, n).
-inline std::size_t randomIndex(std::size_t n) {
+inline std::size_t randomIndex(const std::size_t n) {
     if (n == 0) return 0;
     std::uniform_int_distribution<std::size_t> dist(0, n - 1);
     return dist(engine());

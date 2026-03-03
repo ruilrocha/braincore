@@ -31,7 +31,11 @@ std::vector<double> StreamProcessor::applyEffects(
     // Granular scatter.
     if (params_.grain_size < 1.0 || params_.grain_scatter > 0.0) {
         out = effects::granularScatter(out, block_size, params_.grain_size,
-                                       params_.grain_scatter, params_.grain_density);
+                                       params_.grain_scatter, params_.grain_density,
+                                       params_.grain_size_variation,
+                                       params_.grain_amp_variation,
+                                       params_.grain_pitch_jitter,
+                                       params_.grain_hop_randomness);
     }
 
     // Spectral morph (via injected adapter).
@@ -52,7 +56,7 @@ std::vector<double> StreamProcessor::applyEffects(
 // ── outputBlock ────────────────────────────────────────────────────────
 
 void StreamProcessor::outputBlock(
-    const std::vector<std::vector<double>>& channel_blocks) {
+    const std::vector<std::vector<double>>& channel_blocks) const {
     if (!output_ || channel_blocks.empty()) return;
 
     const auto num_channels = channel_blocks.size();

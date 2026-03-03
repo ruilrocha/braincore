@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <array>
 #include <csignal>
 #include <filesystem>
 #include <format>
@@ -51,14 +53,15 @@ static void printUsage(const char* prog) {
         "\n"
         "Options:\n"
         "  -i <path>  Brain source sound (repeatable, at least one required)\n"
+        "  -d <dir>   Load all audio files in a directory as brain sources\n"
         "  -t <path>  Target sound (required for batch and stream modes)\n"
         "  -o <path>  Output file path (default: sounds/target.wav)\n"
         "  -h         Show this help message\n"
         "\n"
         "Examples:\n"
         "  {} -i sounds/a.wav -i sounds/b.wav -t sounds/target.wav\n"
-        "  {} stream -i sounds/a.wav -t sounds/target.wav\n"
-        "  {} infinite -i sounds/a.wav -i sounds/b.wav\n",
+        "  {} stream -d sounds/brain/ -t sounds/target.wav\n"
+        "  {} infinite -d sounds/brain/\n",
         prog, prog, prog, prog);
 }
 
@@ -67,6 +70,18 @@ static audio::usecase::StreamProcessor* g_stream = nullptr;
 
 static void signalHandler(int /*sig*/) {
     if (g_stream) g_stream->stop();
+}
+
+// ── Audio file detection ───────────────────────────────────────────────
+static bool isAudioFile(const std::filesystem::path& path) {
+    static constexpr std::array extensions = {
+        ".wav", ".flac", ".ogg", ".aif", ".aiff", ".w64", ".rf64",
+        ".raw", ".caf", ".mp3",
+    };
+    auto ext = path.extension().string();
+    // Case-insensitive comparison.
+    for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return std::ranges::any_of(extensions, [&ext](const auto* e) { return ext == e; });
 }
 
 int main(int argc, char* argv[]) {
@@ -90,6 +105,32 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
             brain_paths.emplace_back(argv[i]);
+            continue;
+        }
+        if (arg == "-d") {
+            if (++i >= argc) {
+                std::cerr << "Error: -d requires a directory path argument.\n";
+                return 1;
+            }
+            const std::filesystem::path dir = resolvePath(argv[i]);
+            if (!std::filesystem::is_directory(dir)) {
+                std::cerr << std::format("Error: '{}' is not a directory.\n", argv[i]);
+                return 1;
+            }
+            for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+                if (entry.is_regular_file() && isAudioFile(entry.path())) {
+                    // Store the relative path (relative to PROJECT_ROOT).
+                    brain_paths.push_back(
+                        std::filesystem::relative(entry.path(), PROJECT_ROOT).string());
+                }
+            }
+            if (brain_paths.empty()) {
+                std::cerr << std::format("Warning: no audio files found in '{}'\n", argv[i]);
+            } else {
+                std::ranges::sort(brain_paths);
+                std::cout << std::format("Loaded {} audio file(s) from '{}'\n",
+                                         brain_paths.size(), argv[i]);
+            }
             continue;
         }
         if (arg == "-t") {
@@ -121,7 +162,7 @@ int main(int argc, char* argv[]) {
 
     // ── Validate required inputs ───────────────────────────────────────
     if (brain_paths.empty()) {
-        std::cerr << "Error: at least one brain source is required (-i <path>).\n";
+        std::cerr << "Error: at least one brain source is required (-i <path> or -d <dir>).\n";
         printUsage(argv[0]);
         return 1;
     }
@@ -142,12 +183,12 @@ int main(int argc, char* argv[]) {
     audio::BlockConfig source_config;
     source_config.block_size = 4096;
     source_config.overlap    = 0;
-    source_config.window     = audio::WindowShape::Hann;
+    source_config.window     = audio::WindowShape::Gaussian;
 
     audio::BlockConfig target_config;
     target_config.block_size = 4096;
     target_config.overlap    = 0;
-    target_config.window     = audio::WindowShape::Hann;
+    target_config.window     = audio::WindowShape::Gaussian;
 
     // ── Search parameters ──────────────────────────────────────────────
     audio::SearchParams params;
@@ -165,7 +206,11 @@ int main(int argc, char* argv[]) {
     params.grain_size       = 1.0;
     params.grain_scatter    = 0.0;
     params.grain_density    = 1.0;
-    params.spectral_morph   = 0.0;
+    params.grain_size_variation = 0.1;
+    params.grain_amp_variation  = 0.3;
+    params.grain_pitch_jitter   = 0.2;
+    params.grain_hop_randomness = 0.2;
+    params.spectral_morph   = 0.2;
     params.stutter_chance   = 0.0;
     params.stutter_count    = 2;
     params.envelope_shape   = 0;

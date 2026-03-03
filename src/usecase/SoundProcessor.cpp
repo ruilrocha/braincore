@@ -9,7 +9,7 @@
 
 namespace audio::usecase {
 
-SoundProcessor::SoundProcessor(SearchParams params, BlockConfig target_config,
+SoundProcessor::SoundProcessor(const SearchParams &params, BlockConfig target_config,
                                std::shared_ptr<port::IBlockEffect> spectral_morph)
     : params_(params),
       target_config_(target_config),
@@ -88,7 +88,11 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
             if (do_granular) {
                 src = effects::granularScatter(src, bs, params_.grain_size,
                                                params_.grain_scatter,
-                                               params_.grain_density);
+                                               params_.grain_density,
+                                               params_.grain_size_variation,
+                                               params_.grain_amp_variation,
+                                               params_.grain_pitch_jitter,
+                                               params_.grain_hop_randomness);
             }
 
             // ── Spectral morph with previous block ─────────────────────

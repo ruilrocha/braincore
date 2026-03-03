@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -9,7 +8,7 @@
 #include "../../domain/SearchParams.h"
 #include "../../domain/port/IAnalyser.h"
 
-namespace audio::adapter::search {
+
 
 /**
  * Shared utilities for search strategy adapters.
@@ -17,7 +16,7 @@ namespace audio::adapter::search {
  * Centralises stickyness logic, usage handling, and multi-fingerprint
  * blended distance computation.
  */
-namespace SearchUtils {
+namespace audio::adapter::search::SearchUtils {
 
 /**
  * Apply stickyness: if the next sequential block is "close enough" compared
@@ -86,24 +85,23 @@ inline double layerDistance(
     const std::vector<double>& primary_a, const std::vector<double>& secondary_a,
     const std::vector<double>& primary_b, const std::vector<double>& secondary_b,
     const SearchParams& params) {
-
-    constexpr double kSecondaryBias = 200.0;
     const auto sec_start = static_cast<std::size_t>(std::max(0, params.secondary_start));
     const auto sec_end   = static_cast<std::size_t>(std::max(0, params.secondary_end));
 
     if (params.blend_ratio >= 1.0) {
         // Pure primary.
-        const std::size_t n = std::max(std::min(primary_a.size(), primary_b.size()), std::size_t(1));
+        const std::size_t n = std::max(std::min(primary_a.size(), primary_b.size()), static_cast<std::size_t>(1));
         return ssd(primary_a, primary_b, 0, n) / static_cast<double>(n);
     }
     if (params.blend_ratio <= 0.0) {
+        constexpr double kSecondaryBias = 200.0;
         // Pure secondary.
-        const std::size_t n = std::max(secondary_a.size(), std::size_t(1));
+        const std::size_t n = std::max(secondary_a.size(), static_cast<std::size_t>(1));
         return ssd(secondary_a, secondary_b, sec_start, sec_end) / static_cast<double>(n) * kSecondaryBias;
     }
     // Blend both.
-    const std::size_t sn = std::max(secondary_a.size(), std::size_t(1));
-    const std::size_t pn = std::max(primary_a.size(), std::size_t(1));
+    const std::size_t sn = std::max(secondary_a.size(), static_cast<std::size_t>(1));
+    const std::size_t pn = std::max(primary_a.size(), static_cast<std::size_t>(1));
     const double sec_d = ssd(secondary_a, secondary_b, sec_start, sec_end) / static_cast<double>(sn);
     const double pri_d = ssd(primary_a, primary_b, 0, pn) / static_cast<double>(pn);
     return blend(sec_d, pri_d, params.blend_ratio);
@@ -145,6 +143,6 @@ inline double fullScore(
     return raw_dist;
 }
 
-} // namespace SearchUtils
-} // namespace audio::adapter::search
+} // namespace audio::adapter::search::SearchUtils
+
 

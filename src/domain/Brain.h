@@ -9,7 +9,6 @@
 #include "BlockConfig.h"
 #include "Sound.h"
 #include "SearchParams.h"
-#include "constants.h"
 #include "port/IAnalyser.h"
 #include "port/ISearchStrategy.h"
 

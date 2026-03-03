@@ -82,6 +82,23 @@ struct SearchParams {
     /// 1.0 = normal density, >1.0 = denser/thicker texture.
     double grain_density = 1.0;
 
+    /// Per-grain size variation [0.0, 1.0]: random ± deviation from base grain size.
+    /// 0.0 = all grains identical size, 1.0 = size varies ±100%.
+    double grain_size_variation = 0.0;
+
+    /// Per-grain amplitude variation [0.0, 1.0]: random gain per grain.
+    /// 0.0 = uniform amplitude, 1.0 = ±100% variation.
+    double grain_amp_variation = 0.0;
+
+    /// Per-grain pitch jitter [0.0, 1.0]: random playback-speed variation
+    /// per grain (resampled via linear interpolation).
+    /// 0.0 = no pitch change, 1.0 = ±50% speed variation.
+    double grain_pitch_jitter = 0.0;
+
+    /// Per-grain hop randomness [0.0, 1.0]: randomise base hop positions.
+    /// 0.0 = fixed grid, 1.0 = fully random placement within the block.
+    double grain_hop_randomness = 0.0;
+
     // ── Spectral morphing ──────────────────────────────────────────────
 
     /// Spectral morph amount [0.0, 1.0]: cross-fade between consecutive
