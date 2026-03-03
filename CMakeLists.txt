@@ -45,6 +45,12 @@ add_executable(brainio
         src/adapter/search/RandomSearch.h
         src/adapter/search/WeightedRandomSearch.cpp
         src/adapter/search/WeightedRandomSearch.h
+        src/adapter/search/MarkovChainSearch.cpp
+        src/adapter/search/MarkovChainSearch.h
+        src/adapter/search/MomentumSearch.cpp
+        src/adapter/search/MomentumSearch.h
+        src/adapter/search/TopNPoolSearch.cpp
+        src/adapter/search/TopNPoolSearch.h
 
         # Shared adapter utilities
         src/adapter/search/SearchUtils.h

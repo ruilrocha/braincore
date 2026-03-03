@@ -1,13 +1,13 @@
 # Copilot Coding Agent Onboarding Instructions
 
 ## Repository Summary
-This repository implements **brain-io**, a C++ audio-mangling program inspired by Dave Griffiths' and Aphex Twin's
-[Samplebrain](https://thentrythis.org/projects/samplebrain) project.
+This repository implements **brain-io**, a C++ audio-mangling program.
 
 The core idea: load one or more **source sounds** into a "Brain", then feed in a **target sound**.
 Each fixed-length block of the target is replaced by the best-matching source block, where
 "best match" is determined by a pluggable search strategy operating on fingerprint vectors
-(MFCC by default) computed via a pluggable analyser.
+computed via a pluggable analyser.  Multiple post-processing effects (granular scatter,
+spectral morphing) can be applied during reconstruction.
 
 ## High-Level Information
 - **Project Type:** C++ application — audio processing and mangling.
@@ -17,6 +17,7 @@ Each fixed-length block of the target is replaced by the best-matching source bl
   - **libsndfile** (v1.2.2) — audio file I/O (WAV, FLAC, etc.)
   - **FFTW** (v3.3.10) — real-to-complex FFT for spectral analysis
   - **Aquila** (in-tree, `src/aquila/`) — Mel filter bank and DCT
+- **Header guards:** Use `#pragma once` (not `#ifndef`).
 - **Linting/Formatting:** None configured yet; follow Google C++ Style Guide.
 - **Testing:** None yet; plan to use Google Test.
 - **CI/CD:** GitHub Actions (see `.github/workflows/`)
@@ -35,12 +36,17 @@ conan install . --output-folder=build --build=missing
 ```
 Produces the executable at `cmake-build-debug/brainio`.
 
+### Path Resolution
+The CMake build injects `PROJECT_ROOT` as a compile definition so the binary
+can resolve relative paths (e.g. `sounds/foo.wav`) regardless of where it runs.
+Always use relative paths in `main.cpp`; the `resolvePath()` helper prepends the
+project root.
+
 ### Run
 ```sh
 ./cmake-build-debug/brainio
 ```
-By default it loads brain sources and a target from `sounds/`, writes output to `sounds/target_sound.wav`.
-Edit `main.cpp` to change the file paths, add more brain sources, or swap search strategies.
+Loads brain sources and a target from `sounds/`, writes output to `sounds/target_sound.wav`.
 
 ### Test
 TBD — Google Test integration planned.
@@ -68,17 +74,28 @@ main.cpp                                ← Composition Root (wires adapters →
   │     └── search/                     ← implements port::ISearchStrategy
   │           ├── ClosestSearch         ←   brute-force closest match
   │           ├── ReverseSearch         ←   furthest match (glitch effect)
-  │           └── SynapticSearch        ←   graph-walk through pre-computed synapses
+  │           ├── SynapticSearch        ←   graph-walk through pre-computed synapses
+  │           ├── RandomSearch          ←   pure random selection
+  │           ├── WeightedRandomSearch  ←   softmax-weighted random (temperature param)
+  │           ├── MarkovChainSearch     ←   probabilistic walk through synapse graph
+  │           ├── MomentumSearch        ←   velocity-based trajectory through timbral space
+  │           ├── TopNPoolSearch        ←   random pick from the N closest candidates
+  │           └── SearchUtils.h        ←   shared utilities (stickify, usage, blended distance)
   │
   ├── src/usecase/                      ← USE-CASE layer
   │     └── SoundProcessor              ← orchestrates brain→target reconstruction
+  │                                        + granular scatter + spectral morphing
   │
   ├── src/domain/                       ← DOMAIN CORE (innermost ring)
   │     ├── Sound, Block, Brain         ← entities & aggregates
-  │     ├── SearchParams                ← value object
+  │     ├── Fingerprints                ← value object (primary + secondary + normalised)
+  │     ├── BlockConfig                 ← value object (block_size, overlap, window shape)
+  │     ├── WindowFunction              ← pure-math window functions (Hamming, Hann, etc.)
+  │     ├── SearchParams                ← value object (all UI-controllable parameters)
+  │     ├── SourceSound                 ← metadata for loaded sounds
   │     ├── constants.h                 ← shared constexpr defaults
   │     └── port/                       ← PORT INTERFACES
-  │           ├── IAnalyser             ←   fingerprint computation
+  │           ├── IAnalyser             ←   fingerprint computation (compute + analyse)
   │           ├── ISearchStrategy       ←   block-selection algorithm
   │           └── ISoundFileGateway     ←   file I/O
   │
@@ -94,18 +111,18 @@ main.cpp                                ← Composition Root (wires adapters →
 
 ### Data Flow
 
-1. `main.cpp` creates adapter instances (`MfccAnalyser`, `ClosestSearch`,
-   `LibSndFileGateway`) and injects them as `shared_ptr` into the domain.
+1. `main.cpp` creates adapter instances and injects them as `shared_ptr` into the domain.
 2. N source sounds are loaded via `ISoundFileGateway` and fed to `Brain::addSound()`,
-   which segments each into blocks (with configurable overlap), fingerprints each
-   block via the injected `IAnalyser`, and stores the `Block` objects.
+   which segments each into blocks (with configurable overlap and window shape),
+   fingerprints each block via the injected `IAnalyser::analyse()`, stores both
+   raw and normalised fingerprints, and stores the `Block` objects.
 3. Optionally, `Brain::buildSynapses()` pre-computes a similarity graph for
-   `SynapticSearch`.
+   `SynapticSearch` and `MarkovChainSearch`.
 4. A target sound is loaded.
-5. `SoundProcessor::process(brain, target)` splits the target into blocks, computes
-   fingerprints via `brain.analyser()`, calls `brain.findBestMatch()` (which
-   delegates to the injected `ISearchStrategy`), alpha-blends the results, and
-   returns a new `Sound`.
+5. `SoundProcessor::process(brain, target)` splits the target into blocks using a
+   separate `BlockConfig`, computes fingerprints, calls `brain.findBestMatch()`,
+   applies granular scatter and spectral morphing if enabled, overlap-adds the
+   results with alpha blending, and returns a new `Sound`.
 6. The reconstructed `Sound` is saved via the gateway.
 
 ---
@@ -115,24 +132,27 @@ main.cpp                                ← Composition Root (wires adapters →
 ### `src/domain/` — Domain Core
 | File | Description |
 |------|-------------|
-| `Sound.h / .cpp` | Immutable multi-channel audio container. Sizes derived from data, not stored redundantly. `getChannel(idx)` with bounds checking. |
-| `Block.h` | Value type: `{ samples, fingerprint, source_name, usage, synapses }`. |
-| `Brain.h / .cpp` | Core aggregate. Constructor: `Brain(analyser, search, block_size, overlap)`. Methods: `addSound()`, `findBestMatch(fp, params)`, `buildSynapses(k)`, `blocks()`, `analyser()`, `blockSize()`, `overlap()`. |
-| `SearchParams.h` | Value object: `alpha`, `stickyness`, `overlap`, `usage_falloff`, `usage_weight`. |
+| `Sound.h / .cpp` | Immutable multi-channel audio container. |
+| `Block.h` | Value type: samples, channel_samples, fingerprint, secondary_fingerprint, normalised variants, dominant_freq, usage, synapses. |
+| `Brain.h / .cpp` | Core aggregate. Constructor: `Brain(analyser, search, BlockConfig)`. Methods: `addSound()`, `findBestMatch()`, `buildSynapses()`, `jiggle()`, `depleteUsage()`, `activateSound()`, `isBlockActive()`. |
+| `Fingerprints.h` | Value object: `primary`, `secondary`, `normalised_primary`, `normalised_secondary`, `dominant_freq`. |
+| `BlockConfig.h` | Value object: `block_size`, `overlap`, `window` (WindowShape enum). |
+| `WindowFunction.h` | Pure-math utility: `apply()` (7 window shapes), `normalise()` (DC-remove + peak-scale). |
+| `SearchParams.h` | All UI-controllable parameters — see SearchParams section below. |
 | `constants.h` | `kDefaultBlockSize` (4096), `kDefaultNumMfcc` (12), `kDefaultMelBankSize` (24), `kDefaultAlpha` (1.0). |
-| `port/IAnalyser.h` | Port interface: `compute(block, sr)` → fingerprint; `distance(a, b)` → double. |
-| `port/ISearchStrategy.h` | Port interface: `search(target_fp, blocks, analyser, params, current_idx)` → index. |
-| `port/ISoundFileGateway.h` | Port interface: `loadSound(path)`, `saveSound(path, sound)`. |
+| `port/IAnalyser.h` | Port: `compute(block, sr)` → primary fingerprint; `analyse(block, sr)` → full Fingerprints bundle; `distance(a, b)` → double. |
+| `port/ISearchStrategy.h` | Port: `search(target_fp, blocks, analyser, params, current_idx)` → index. |
+| `port/ISoundFileGateway.h` | Port: `loadSound(path)`, `saveSound(path, sound)`. |
 
 ### `src/usecase/` — Application Use-Cases
 | File | Description |
 |------|-------------|
-| `SoundProcessor.h / .cpp` | Constructor takes `SearchParams`. `process(brain, target)` returns a new `Sound`. Block size and analyser are read from the Brain. |
+| `SoundProcessor.h / .cpp` | Constructor takes `SearchParams` + `BlockConfig` for the target. `process(brain, target)` returns a new `Sound`. Includes granular scatter and spectral morphing post-processing. |
 
 ### `src/adapter/analysis/` — Analysis Adapters
 | File | Description |
 |------|-------------|
-| `MfccAnalyser.h / .cpp` | Implements `IAnalyser`. Configurable `num_mfcc`. Pipeline: FFTW → Aquila `MelFilterBank` → Aquila `Dct`. Euclidean distance for comparison. |
+| `MfccAnalyser.h / .cpp` | Implements `IAnalyser`. Primary = MFCC (timbral envelope), Secondary = FFT magnitude bins (spectral detail). Single FFT pass per `analyse()` call. Euclidean distance. |
 
 ### `src/adapter/gateway/` — Gateway Adapters
 | File | Description |
@@ -142,9 +162,15 @@ main.cpp                                ← Composition Root (wires adapters →
 ### `src/adapter/search/` — Search Strategy Adapters
 | File | Description |
 |------|-------------|
-| `ClosestSearch.h / .cpp` | Brute-force scan: picks the block with the smallest fingerprint distance. Supports **stickyness** (bias toward the next sequential block for temporal coherence) and **usage penalties** (heavily-used blocks get a distance penalty to promote variety). |
-| `ReverseSearch.h / .cpp` | Picks the block with the **largest** fingerprint distance — extreme glitch/mangling effect. |
-| `SynapticSearch.h / .cpp` | Walks the pre-computed synapse graph (nearest-neighbour list) of the current block. Only evaluates `num_synapses` candidates per step, producing output that evolves smoothly through the brain's timbral space. Requires `Brain::buildSynapses()`. |
+| `SearchUtils.h` | Shared inline utilities: `stickify()`, `applyUsage()`, `fullScore()` (multi-fingerprint blended distance with usage penalty). |
+| `ClosestSearch` | Brute-force scan. Supports stickyness + usage penalties. |
+| `ReverseSearch` | Picks the *furthest* match — extreme glitch effect. |
+| `SynapticSearch` | Deterministic walk through the pre-computed synapse graph. |
+| `RandomSearch` | Pure random block selection (no fingerprint comparison). |
+| `WeightedRandomSearch` | Softmax-weighted random over all blocks. Temperature param controls entropy. |
+| `MarkovChainSearch` | Probabilistic walk through the synapse graph using softmax transition probabilities. Requires `buildSynapses()`. Temperature controls exploration. |
+| `MomentumSearch` | Tracks a velocity vector in fingerprint space. Output drifts smoothly through the brain's timbral landscape like a stream. Controlled by `momentum` and `momentum_decay` params. |
+| `TopNPoolSearch` | Finds the N closest candidates, picks one at random. `pool_size` param controls variety. |
 
 ### `src/aquila/` — In-Tree DSP Library
 | File | Description |
@@ -154,53 +180,71 @@ main.cpp                                ← Composition Root (wires adapters →
 | `filter/MelFilterBank.h / .cpp` | Bank of Mel filters; `applyAll(spectrum)` returns filter energies. |
 | `transform/Dct.h / .cpp` | Discrete Cosine Transform with cosine cache; `dct(data, outputLength)`. |
 
-### Root Files
-| File | Description |
-|------|-------------|
-| `CMakeLists.txt` | CMake build definition — lists all sources, links `SndFile::sndfile` and `fftw::fftw`. |
-| `conanfile.py` / `conandata.yml` | Conan package manager configuration. |
-| `conan_provider.cmake` | CMake–Conan integration. |
-| `sounds/` | Sample audio files for testing (`.wav`). |
+---
+
+## SearchParams — UI-Controllable Parameters
+
+All parameters are designed to be bound to UI sliders/knobs:
+
+| Parameter | Range | Default | Description |
+|-----------|-------|---------|-------------|
+| `alpha` | [0.0, 1.0] | 1.0 | Source-vs-target blend. 1.0 = full replacement. |
+| `stickyness` | [0.0, 1.0] | 0.0 | Temporal coherence bias toward next sequential block. |
+| `overlap` | samples | 0 | Block overlap for smoother transitions. |
+| `usage_falloff` ("boredom") | [0.0, 1.0] | 1.0 | How fast blocks become available again. |
+| `usage_weight` ("novelty") | [0.0, 1.0] | 0.0 | Penalty for re-used blocks. |
+| `blend_ratio` | [0.0, 1.0] | 1.0 | Primary-vs-secondary fingerprint blend. |
+| `n_ratio` | [0.0, 1.0] | 0.0 | Raw-vs-normalised fingerprint blend. |
+| `secondary_start` | int | 0 | Secondary fingerprint comparison range start. |
+| `secondary_end` | int | 100 | Secondary fingerprint comparison range end. |
+| `momentum` | [0.0, 1.0] | 0.0 | MomentumSearch: trajectory inertia. |
+| `momentum_decay` | [0.0, 1.0] | 0.95 | MomentumSearch: velocity decay per step. |
+| `pool_size` | [1, N] | 5 | TopNPoolSearch: number of top candidates. |
+| `grain_size` | [0.01, 1.0] | 1.0 | Granular: grain size as fraction of block. |
+| `grain_scatter` | [0.0, 1.0] | 0.0 | Granular: random temporal offset. |
+| `grain_density` | [0.1, 4.0] | 1.0 | Granular: overlap density. |
+| `spectral_morph` | [0.0, 1.0] | 0.0 | Cross-fade between consecutive blocks with RMS matching. |
 
 ---
 
 ## Key Design Decisions
 
-1. **Hexagonal architecture** — Domain core has zero outward dependencies.  All
-   external concerns (FFTW, libsndfile, concrete algorithms) live in adapter/.
+1. **Hexagonal architecture** — Domain core has zero outward dependencies.
 2. **Three port interfaces** — `IAnalyser`, `ISearchStrategy`, `ISoundFileGateway`
-   are pure-virtual classes in `domain/port/`, making the domain fully testable
-   with mocks and allowing strategy swaps without changing domain code.
-3. **Strategy pattern for search** — `ClosestSearch`, `ReverseSearch`, and
-   `SynapticSearch` are interchangeable adapters. Swap by changing one line
-   in `main.cpp`.
-4. **SearchParams value object** — Bundles `alpha`, `stickyness`, `overlap`,
-   `usage_falloff`, `usage_weight` into a single transferable config.
-5. **Stickyness** — Temporal coherence: the search can prefer the *next*
-   sequential block over the globally closest one, reducing block-boundary
-   discontinuities.
-6. **Usage tracking & depletion** — Each block has a `usage` counter that grows
-   when selected and decays each tick. Search strategies can add
-   `usage * usage_weight` as a distance penalty to promote output variety.
-7. **Block overlap** — Overlapping segmentation (`Brain` constructor `overlap`
-   parameter) produces smoother spectral transitions between blocks.
-8. **Synapse graph** — `Brain::buildSynapses(k)` pre-computes each block's k
-   nearest neighbours. `SynapticSearch` walks this graph for faster / more
-   creative matching.
-9. **No redundant state** — `Sound` derives `num_samples` and `num_channels`
-   from the underlying `channels_` vector.
-10. **MFCC matching on channel 0 only** — the same matched block index is applied
-    across all channels, preserving stereo coherence.
-11. **Alpha blending** — `[0.0, 1.0]`: `1.0` = full source replacement,
-    `0.0` = original target.
-12. **No copies on match** — `findBestMatch` returns `const Block&`.
+   are pure-virtual classes in `domain/port/`.
+3. **Generic IAnalyser port** — The port exposes `compute()`, `analyse()`, and
+   `distance()` without naming any specific technique (MFCC, FFT).  Concrete
+   adapters decide what primary/secondary fingerprints represent.
+4. **Fingerprints bundle** — `analyse()` returns a `Fingerprints` struct with
+   primary, secondary, and dominant_freq.  The Brain computes both raw and
+   normalised variants and stores them on the Block.
+5. **BlockConfig for source and target** — Source (brain) and target can have
+   independent block sizes, overlaps, and window shapes.
+6. **WindowFunction** — Seven shapes (Rectangle, Hamming, Hann, Blackman,
+   Bartlett, FlatTop, Gaussian) applied before fingerprinting. Pure domain math.
+7. **Eight search strategies** — Interchangeable adapters: ClosestSearch,
+   ReverseSearch, SynapticSearch, RandomSearch, WeightedRandomSearch,
+   MarkovChainSearch, MomentumSearch, TopNPoolSearch.
+8. **SearchUtils** — Shared adapter utilities eliminate code duplication across
+   search strategies (stickify, applyUsage, fullScore with blended distance).
+9. **SearchParams** — Single value object bundles all UI-controllable parameters.
+10. **Usage tracking** — "novelty" (usage_weight) and "boredom" (usage_falloff).
+11. **Granular post-processing** — Hann-enveloped micro-grains with scatter,
+    density control, and overlap-add normalisation.
+12. **Spectral morphing** — RMS-matched cross-fade between consecutive matched
+    blocks for smooth timbral transitions.
+13. **Multi-channel blocks** — Blocks store per-channel samples for stereo
+    reconstruction; fingerprinting uses channel 0 only.
+14. **Path resolution** — `PROJECT_ROOT` compile definition ensures relative
+    paths work regardless of binary location.
+15. **`#pragma once`** — Used everywhere instead of `#ifndef` guards.
 
 ## Additional Notes
 - **Dependencies:** Managed via Conan and `conandata.yml`.
 - **Do not manually edit files in `build/` or `cmake-build-debug/` directories.**
 - **Adding a brain source:** add the `.wav` path to the `brain_paths` vector in `main.cpp`.
-- **Changing search strategy:** replace `ClosestSearch` with `ReverseSearch` or
-  `SynapticSearch` in `main.cpp` (one-line swap). For `SynapticSearch`, call
+- **Changing search strategy:** replace `ClosestSearch` with any other search adapter
+  in `main.cpp` (one-line swap). For `SynapticSearch` or `MarkovChainSearch`, call
   `brain.buildSynapses()` after loading all sounds.
 
 ## Agent Guidance
@@ -208,3 +252,5 @@ main.cpp                                ← Composition Root (wires adapters →
 - **Always run lint and tests before proposing changes.**
 - **Follow the PR checklist and coding standards.**
 - **Document any new or changed build/test steps in this file.**
+- **Use `#pragma once` for all new headers.**
+- **Keep the IAnalyser port generic — no analysis-technique-specific methods.**

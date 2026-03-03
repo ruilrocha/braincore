@@ -14,6 +14,9 @@
 // #include "adapter/search/SynapticSearch.h"
 // #include "adapter/search/RandomSearch.h"
 // #include "adapter/search/WeightedRandomSearch.h"
+// #include "adapter/search/MarkovChainSearch.h"
+// #include "adapter/search/MomentumSearch.h"
+// #include "adapter/search/TopNPoolSearch.h"
 
 // Domain (innermost layer)
 #include "domain/BlockConfig.h"
@@ -22,6 +25,10 @@
 #include "domain/Sound.h"
 
 // Use-case layer
+#include "adapter/search/MarkovChainSearch.h"
+#include "adapter/search/MomentumSearch.h"
+#include "adapter/search/SynapticSearch.h"
+#include "adapter/search/TopNPoolSearch.h"
 #include "usecase/SoundProcessor.h"
 
 // ── Path resolution ────────────────────────────────────────────────────
@@ -50,7 +57,7 @@ int main() {
 
     // ── Adapter wiring (Composition Root) ──────────────────────────────
     auto analyser = std::make_shared<audio::adapter::analysis::MfccAnalyser>();
-    auto search   = std::make_shared<audio::adapter::search::ClosestSearch>();
+    auto search   = std::make_shared<audio::adapter::search::SynapticSearch>();
     audio::adapter::gateway::LibSndFileGateway gateway;
 
     // ── Block configuration ────────────────────────────────────────────
@@ -58,7 +65,7 @@ int main() {
     audio::BlockConfig source_config;
     source_config.block_size = 4096;
     source_config.overlap    = 0;
-    source_config.window     = audio::WindowShape::Hamming;
+    source_config.window     = audio::WindowShape::Hann;
 
     // Target config — controls how the target is segmented for matching.
     // Can differ from source config for creative effects.
@@ -78,6 +85,13 @@ int main() {
     params.n_ratio          = 0.0;   // 0.0 = raw fingerprints, 1.0 = normalised (amplitude-invariant)
     params.secondary_start  = 0;     // Secondary fingerprint bin range start
     params.secondary_end    = 100;   // Secondary fingerprint bin range end
+    params.momentum         = 0.0;   // MomentumSearch: 0.0 = closest, 1.0 = full inertia
+    params.momentum_decay   = 0.95;  // MomentumSearch: velocity decay per step
+    params.pool_size        = 5;     // TopNPoolSearch: number of top candidates
+    params.grain_size       = 1.0;   // Granular: 1.0 = full block, 0.1 = tiny grains
+    params.grain_scatter    = 1.0;   // Granular: 0.0 = sequential, 1.0 = fully scattered
+    params.grain_density    = 1.0;   // Granular: 1.0 = normal, >1 = denser texture
+    params.spectral_morph   = 0.0;   // Spectral: 0.0 = hard cuts, 1.0 = full morph
 
     // ── Build the Brain ────────────────────────────────────────────────
     audio::Brain brain(analyser, search, source_config);
@@ -103,7 +117,7 @@ int main() {
     std::cout << std::format("Brain ready: {} blocks\n", brain.size());
 
     // Optional: pre-compute synapse graph for SynapticSearch.
-    // brain.buildSynapses(1000);
+    brain.buildSynapses(1000);
 
     // ── Load target sound ──────────────────────────────────────────────
     const std::string target_full = resolvePath(target_path);
