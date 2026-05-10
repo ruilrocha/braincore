@@ -39,8 +39,8 @@ typedef struct {
     double usage_weight;
     double blend_ratio;
     double n_ratio;
-    int    secondary_start;
-    int    secondary_end;
+    int    spectral_start;
+    int    spectral_end;
     double grain_size;
     double grain_scatter;
     double grain_density;

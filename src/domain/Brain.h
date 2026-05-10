@@ -72,6 +72,13 @@ public:
         const std::vector<double>& target_fp,
         const SearchParams& params);
 
+    /**
+     * Swap the search strategy at runtime.
+     * If the new strategy requires synapses and they haven't been built yet,
+     * buildSynapses() is called automatically (lazy, one-time cost).
+     */
+    void setSearchStrategy(std::shared_ptr<port::ISearchStrategy> strategy);
+
     // ── Synapse graph ──────────────────────────────────────────────────
 
     /**

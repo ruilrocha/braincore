@@ -16,7 +16,7 @@ std::size_t MomentumSearch::search(
 
     if (blocks.empty()) return 0;
 
-    const auto& current_fp = blocks[current_block_index].fingerprint;
+    const auto& current_fp = blocks[current_block_index].mfcc;
     const double mom = std::clamp(params.momentum, 0.0, 1.0);
     const double decay = std::clamp(params.momentum_decay, 0.0, 1.0);
 
@@ -53,7 +53,7 @@ std::size_t MomentumSearch::search(
     std::size_t best_idx = 0;
 
     for (std::size_t i = 0; i < blocks.size(); ++i) {
-        double score = analyser.distance(search_target, blocks[i].fingerprint);
+        double score = analyser.distance(search_target, blocks[i].mfcc);
         score += blocks[i].usage * params.usage_weight;
         if (score < best_score) {
             best_score = score;

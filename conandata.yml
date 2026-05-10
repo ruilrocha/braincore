@@ -1,14 +1,11 @@
 # brain-io dependencies managed by Conan.
-# Optional deps are always listed — CMake options control which get linked.
 
 requirements:
-  # Always needed (FFT backends)
+  # FFT (PocketFFT — header-only)
   - "pocketfft/0.0.0.cci.20240801"
-  # - "fftw/3.3.10"  # Uncomment if BRAINIO_FFT_BACKEND=fftw
 
-  # Audio I/O (optional, selected by BRAINIO_IO_BACKEND)
+  # Audio I/O (dr_libs — header-only, WAV/FLAC/MP3)
   - "dr_libs/cci.20230529"
-  # - "libsndfile/1.2.2"  # Uncomment if BRAINIO_IO_BACKEND=libsndfile
 
   # Audio playback (optional, BRAINIO_BUILD_PLAYBACK)
   - "miniaudio/0.11.18"

@@ -52,9 +52,9 @@ struct SearchParams {
     ///   1.0 = normalised (amplitude-invariant) only
     double n_ratio = 0.0;
 
-    /// Secondary fingerprint comparison range (0-based).
-    int secondary_start = 0;
-    int secondary_end   = 100;
+    /// Spectral fingerprint comparison range (0-based bin indices).
+    int spectral_start = 0;
+    int spectral_end   = 100;
 
     // ── Momentum search ────────────────────────────────────────────────
 

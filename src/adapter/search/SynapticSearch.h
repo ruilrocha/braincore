@@ -33,6 +33,8 @@ public:
         const SearchParams& params,
         std::size_t current_block_index) const override;
 
+    [[nodiscard]] bool requiresSynapses() const override { return true; }
+
 private:
     std::size_t num_synapses_;
 };

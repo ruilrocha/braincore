@@ -34,6 +34,12 @@ public:
         const IAnalyser& analyser,
         const SearchParams& params,
         std::size_t current_block_index) const = 0;
+
+    /**
+     * Whether this strategy requires the synapse graph to be pre-built.
+     * Used by Brain::setSearchStrategy() to lazily build synapses on demand.
+     */
+    [[nodiscard]] virtual bool requiresSynapses() const { return false; }
 };
 
 } // namespace audio::port

@@ -198,7 +198,7 @@ void StreamProcessor::streamInfinite(Brain& brain, const int sample_rate,
 
     // Seed with a random block's fingerprint.
     brain.jiggle();
-    std::vector<double> search_fp = brain.blocks()[brain.currentBlockIndex()].fingerprint;
+    std::vector<double> search_fp = brain.blocks()[brain.currentBlockIndex()].mfcc;
 
     // Compute the typical scale of fingerprint values so drift is meaningful.
     double fp_scale = 0.0;
@@ -233,12 +233,12 @@ void StreamProcessor::streamInfinite(Brain& brain, const int sample_rate,
         // If stuck for too many steps, jiggle to break out.
         if (stuck_count > 3) {
             brain.jiggle();
-            search_fp = brain.blocks()[brain.currentBlockIndex()].fingerprint;
+            search_fp = brain.blocks()[brain.currentBlockIndex()].mfcc;
             stuck_count = 0;
         }
 
         // Evolve search fingerprint: blend toward match + additive drift.
-        const auto& match_fp = match.fingerprint;
+        const auto& match_fp = match.mfcc;
         search_fp.resize(match_fp.size());
 
         const double drift_amount = 0.15 + 0.05 * std::sin(

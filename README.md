@@ -70,32 +70,26 @@ cmake --build build --config Release
 
 ## Build Configuration
 
-### Backend Selection
-
-Choose FFT and audio I/O implementations at build time:
-
-```bash
-# FFT backend (default: pocketfft)
--DBRAINIO_FFT_BACKEND=pocketfft   # Header-only, no external deps
--DBRAINIO_FFT_BACKEND=fftw        # FFTW3 (faster for large FFTs)
-
-# Audio I/O backend (default: drlibs)
--DBRAINIO_IO_BACKEND=drlibs       # Header-only (WAV/FLAC/MP3)
--DBRAINIO_IO_BACKEND=libsndfile   # libsndfile (more formats)
--DBRAINIO_IO_BACKEND=none         # No file I/O (library-only build for iOS)
-```
-
 ### Optional Components
 
 ```bash
-# Audio playback (default: ON)
--DBRAINIO_BUILD_PLAYBACK=ON       # Enables miniaudio real-time output
+# Audio file I/O (default: ON) — uses dr_libs (WAV/FLAC/MP3)
+-DBRAINIO_BUILD_IO=ON
 
-# WebSocket UI (default: OFF)
--DBRAINIO_BUILD_UI=ON             # Enables WebSocket server + control panel
+# Audio playback (default: ON) — uses miniaudio
+-DBRAINIO_BUILD_PLAYBACK=ON
+
+# WebSocket UI (default: ON) — enables real-time parameter control
+-DBRAINIO_BUILD_UI=ON
 
 # CLI executable (default: ON)
--DBRAINIO_BUILD_CLI=ON            # Builds the brainio command-line tool
+-DBRAINIO_BUILD_CLI=ON
+```
+
+Set any to `OFF` to exclude from the build. For a library-only build (e.g., iOS):
+
+```bash
+cmake ... -DBRAINIO_BUILD_IO=OFF -DBRAINIO_BUILD_PLAYBACK=OFF -DBRAINIO_BUILD_UI=OFF -DBRAINIO_BUILD_CLI=OFF
 ```
 
 ### Build Targets
@@ -104,7 +98,7 @@ The CMake build produces these library targets:
 
 - **brainio-core** — Domain logic (zero external dependencies)
 - **brainio-fft** — FFT adapter (PocketFFT or FFTW)
-- **brainio-io** — File I/O adapter (dr_libs or libsndfile, optional)
+- **brainio-io** — File I/O adapter (dr_libs, optional)
 - **brainio-playback** — Audio playback adapter (miniaudio, optional)
 - **brainio-capi** — C-compatible API for XCFramework/Swift
 - **brainio** — CLI executable (optional)
@@ -118,8 +112,7 @@ conan install . --output-folder=build --build=missing \
 cmake -S . -B build \
   -DCMAKE_SYSTEM_NAME=iOS \
   -DCMAKE_TOOLCHAIN_FILE=build/build/Release/generators/conan_toolchain.cmake \
-  -DBRAINIO_FFT_BACKEND=pocketfft \
-  -DBRAINIO_IO_BACKEND=none \
+  -DBRAINIO_BUILD_IO=OFF \
   -DBRAINIO_BUILD_PLAYBACK=OFF \
   -DBRAINIO_BUILD_UI=OFF \
   -DBRAINIO_BUILD_CLI=OFF
@@ -239,10 +232,8 @@ All `SearchParams` are exposed: alpha, stickyness, usage, blend ratios, granular
 
 All managed via Conan:
 
-- **[PocketFFT](https://gitlab.mpcdf.mpg.de/mtr/pocketfft)** — Header-only FFT (default)
-- **[FFTW](https://www.fftw.org)** — Fast Fourier Transform (optional)
-- **[dr_libs](https://github.com/mackron/dr_libs)** — Header-only audio I/O (default)
-- **[libsndfile](https://libsndfile.github.io/libsndfile)** — Audio file I/O (optional)
+- **[PocketFFT](https://gitlab.mpcdf.mpg.de/mtr/pocketfft)** — Header-only FFT and DCT
+- **[dr_libs](https://github.com/mackron/dr_libs)** — Header-only audio I/O (WAV/FLAC/MP3)
 - **[miniaudio](https://miniaud.io)** — Cross-platform audio playback
 - **[ixwebsocket](https://github.com/machinezone/IXWebSocket)** — WebSocket server
 - **[readerwriterqueue](https://github.com/cameron314/readerwriterqueue)** — Lock-free SPSC ring buffer

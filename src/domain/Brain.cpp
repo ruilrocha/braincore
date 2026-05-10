@@ -66,8 +66,8 @@ void Brain::addSound(const Sound& sound, const std::string& name) {
 
         // ── Compute raw fingerprints via the generic analyse() port ────
         auto raw_fp = analyser_->analyse(windowed, sample_rate);
-        block.fingerprint             = std::move(raw_fp.primary);
-        block.secondary_fingerprint   = std::move(raw_fp.secondary);
+        block.mfcc             = std::move(raw_fp.mfcc);
+        block.spectral   = std::move(raw_fp.spectral);
         block.dominant_freq           = raw_fp.dominant_freq;
 
         // ── Compute normalised fingerprints ────────────────────────────
@@ -76,8 +76,8 @@ void Brain::addSound(const Sound& sound, const std::string& name) {
         WindowFunction::apply(norm_samples, config_.window);
 
         auto norm_fp = analyser_->analyse(norm_samples, sample_rate);
-        block.normalised_fingerprint           = std::move(norm_fp.primary);
-        block.normalised_secondary_fingerprint = std::move(norm_fp.secondary);
+        block.normalised_mfcc           = std::move(norm_fp.mfcc);
+        block.normalised_spectral = std::move(norm_fp.spectral);
 
         // Store mono samples (windowed version is only for analysis).
         block.samples = std::move(raw_samples);
@@ -123,6 +123,16 @@ const Block& Brain::findBestMatch(
     return blocks_[idx];
 }
 
+void Brain::setSearchStrategy(std::shared_ptr<port::ISearchStrategy> strategy) {
+    search_ = std::move(strategy);
+
+    // Lazily build synapses if the new strategy needs them.
+    if (search_->requiresSynapses() && !blocks_.empty()
+        && blocks_[0].synapses.empty()) {
+        buildSynapses();
+    }
+}
+
 // ── Synapse graph ──────────────────────────────────────────────────────
 
 void Brain::buildSynapses(const std::size_t num_synapses) {
@@ -136,7 +146,7 @@ void Brain::buildSynapses(const std::size_t num_synapses) {
         for (std::size_t j = 0; j < n; ++j) {
             if (j == i) continue;
             const double d = analyser_->distance(
-                blocks_[i].fingerprint, blocks_[j].fingerprint);
+                blocks_[i].mfcc, blocks_[j].mfcc);
             scored.emplace_back(j, d);
         }
 

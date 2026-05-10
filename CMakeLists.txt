@@ -4,27 +4,16 @@ project(brainio)
 set(CMAKE_CXX_STANDARD 23)
 
 # ── Build options ───────────────────────────────────────────────────────
-set(BRAINIO_FFT_BACKEND "pocketfft" CACHE STRING "FFT backend: pocketfft or fftw")
-set_property(CACHE BRAINIO_FFT_BACKEND PROPERTY STRINGS "pocketfft" "fftw")
+option(BRAINIO_BUILD_IO       "Build audio file I/O adapter (dr_libs)" ON)
+option(BRAINIO_BUILD_PLAYBACK "Build miniaudio playback adapter"       ON)
+option(BRAINIO_BUILD_UI       "Build WebSocket UI layer"               ON)
+option(BRAINIO_BUILD_CLI      "Build CLI executable"                   ON)
 
-set(BRAINIO_IO_BACKEND "drlibs" CACHE STRING "Audio I/O backend: drlibs, libsndfile, or none")
-set_property(CACHE BRAINIO_IO_BACKEND PROPERTY STRINGS "drlibs" "libsndfile" "none")
+# ── Find packages ──────────────────────────────────────────────────────
+find_package(pocketfft REQUIRED)
 
-option(BRAINIO_BUILD_PLAYBACK "Build miniaudio playback adapter" ON)
-option(BRAINIO_BUILD_UI       "Build WebSocket UI layer"         ON)
-option(BRAINIO_BUILD_CLI      "Build CLI executable"             ON)
-
-# ── Find packages based on options ─────────────────────────────────────
-if(BRAINIO_FFT_BACKEND STREQUAL "pocketfft")
-    find_package(pocketfft REQUIRED)
-elseif(BRAINIO_FFT_BACKEND STREQUAL "fftw")
-    find_package(FFTW3 REQUIRED)
-endif()
-
-if(BRAINIO_IO_BACKEND STREQUAL "drlibs")
+if(BRAINIO_BUILD_IO)
     find_package(dr_libs REQUIRED)
-elseif(BRAINIO_IO_BACKEND STREQUAL "libsndfile")
-    find_package(SndFile REQUIRED)
 endif()
 
 if(BRAINIO_BUILD_PLAYBACK)
@@ -55,38 +44,20 @@ target_include_directories(brainio-core PUBLIC
 )
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-fft  (FFT adapter — always needed for analysis)
+# brainio-fft  (PocketFFT adapter — always needed for analysis)
 # ═══════════════════════════════════════════════════════════════════════
-if(BRAINIO_FFT_BACKEND STREQUAL "pocketfft")
-    add_library(brainio-fft STATIC src/adapter/fft/PocketfftBackend.cpp)
-    target_link_libraries(brainio-fft PUBLIC brainio-core pocketfft::pocketfft)
-    target_compile_definitions(brainio-fft PUBLIC BRAINIO_FFT_POCKETFFT)
-elseif(BRAINIO_FFT_BACKEND STREQUAL "fftw")
-    add_library(brainio-fft STATIC src/adapter/fft/FftwBackend.cpp)
-    target_link_libraries(brainio-fft PUBLIC brainio-core fftw::fftw)
-    target_compile_definitions(brainio-fft PUBLIC BRAINIO_FFT_FFTW)
-endif()
-
+add_library(brainio-fft STATIC src/adapter/fft/PocketfftBackend.cpp)
+target_link_libraries(brainio-fft PUBLIC brainio-core pocketfft::pocketfft)
 target_include_directories(brainio-fft PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-io  (File I/O adapter — optional)
+# brainio-io  (File I/O adapter — optional, uses dr_libs)
 # ═══════════════════════════════════════════════════════════════════════
-if(BRAINIO_IO_BACKEND STREQUAL "drlibs")
+if(BRAINIO_BUILD_IO)
     add_library(brainio-io STATIC
         src/adapter/gateway/DrLibsGateway.cpp
         src/adapter/gateway/DrLibsRecorder.cpp)
     target_link_libraries(brainio-io PUBLIC brainio-core dr_libs::dr_libs)
-    target_compile_definitions(brainio-io PUBLIC BRAINIO_IO_DRLIBS)
-elseif(BRAINIO_IO_BACKEND STREQUAL "libsndfile")
-    add_library(brainio-io STATIC
-        src/adapter/gateway/LibSndFileGateway.cpp
-        src/adapter/gateway/LibSndFileRecorder.cpp)
-    target_link_libraries(brainio-io PUBLIC brainio-core SndFile::sndfile)
-    target_compile_definitions(brainio-io PUBLIC BRAINIO_IO_LIBSNDFILE)
-endif()
-
-if(NOT BRAINIO_IO_BACKEND STREQUAL "none")
     target_include_directories(brainio-io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 endif()
 
@@ -102,7 +73,7 @@ if(BRAINIO_BUILD_PLAYBACK)
 endif()
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-ui  (WebSocket control — optional, OFF by default)
+# brainio-ui  (WebSocket control — optional)
 # ═══════════════════════════════════════════════════════════════════════
 if(BRAINIO_BUILD_UI)
     add_library(brainio-ui STATIC src/adapter/control/WebSocketParamController.cpp)
@@ -131,16 +102,11 @@ target_link_libraries(brainio-capi PUBLIC brainio-core brainio-fft)
 if(BRAINIO_BUILD_CLI)
     add_executable(brainio
         src/main.cpp
-        # Search strategies (needed by CLI)
         src/adapter/analysis/MfccAnalyser.cpp
         src/adapter/search/ClosestSearch.cpp
-        src/adapter/search/ReverseSearch.cpp
         src/adapter/search/SynapticSearch.cpp
-        src/adapter/search/RandomSearch.cpp
-        src/adapter/search/WeightedRandomSearch.cpp
         src/adapter/search/MarkovChainSearch.cpp
         src/adapter/search/MomentumSearch.cpp
-        # Effects (uses IFft)
         src/adapter/effects/FftwSpectralMorph.cpp
     )
 
@@ -148,7 +114,7 @@ if(BRAINIO_BUILD_CLI)
 
     target_link_libraries(brainio PRIVATE brainio-core brainio-fft)
 
-    if(NOT BRAINIO_IO_BACKEND STREQUAL "none")
+    if(BRAINIO_BUILD_IO)
         target_link_libraries(brainio PRIVATE brainio-io)
     endif()
 

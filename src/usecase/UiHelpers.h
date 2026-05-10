@@ -10,10 +10,7 @@
 
 // Adapter includes needed for the factory — only used by the Composition Root.
 #include "../adapter/search/ClosestSearch.h"
-#include "../adapter/search/ReverseSearch.h"
 #include "../adapter/search/SynapticSearch.h"
-#include "../adapter/search/RandomSearch.h"
-#include "../adapter/search/WeightedRandomSearch.h"
 #include "../adapter/search/MarkovChainSearch.h"
 #include "../adapter/search/MomentumSearch.h"
 
@@ -49,10 +46,7 @@ inline bool isAudioFile(const std::filesystem::path& path) {
 inline auto makeSearch(const std::string& name)
     -> std::shared_ptr<port::ISearchStrategy> {
     using namespace adapter::search;
-    if (name == "reverse")         return std::make_shared<ReverseSearch>();
     if (name == "synaptic")        return std::make_shared<SynapticSearch>();
-    if (name == "random")          return std::make_shared<RandomSearch>();
-    if (name == "weighted_random") return std::make_shared<WeightedRandomSearch>();
     if (name == "markov")          return std::make_shared<MarkovChainSearch>();
     if (name == "momentum")        return std::make_shared<MomentumSearch>();
     return std::make_shared<ClosestSearch>();
@@ -73,4 +67,3 @@ inline WindowShape windowFromOrdinal(int ordinal) {
 }
 
 } // namespace audio::ui
-

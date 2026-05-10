@@ -31,7 +31,7 @@ std::size_t MarkovChainSearch::search(
         double best = std::numeric_limits<double>::max();
         std::size_t best_idx = 0;
         for (std::size_t i = 0; i < blocks.size(); ++i) {
-            const double d = analyser.distance(target_fp, blocks[i].fingerprint)
+            const double d = analyser.distance(target_fp, blocks[i].mfcc)
                            + blocks[i].usage * params.usage_weight;
             if (d < best) { best = d; best_idx = i; }
         }
@@ -50,7 +50,7 @@ std::size_t MarkovChainSearch::search(
     for (std::size_t s = 0; s < limit; ++s) {
         const std::size_t idx = current.synapses[s];
         // Target affinity: how well does this candidate match the target?
-        const double target_dist = analyser.distance(target_fp, blocks[idx].fingerprint);
+        const double target_dist = analyser.distance(target_fp, blocks[idx].mfcc);
         // Synapse proximity: how close is it to the current block? (implicit
         // from ordering — earlier synapses are closer).
         const double proximity_bonus = static_cast<double>(s) * 0.01;

@@ -37,7 +37,7 @@ inline std::size_t stickify(
     if (next >= blocks.size()) return closest_idx;
 
     const double next_dist =
-        analyser.distance(target_fp, blocks[next].fingerprint);
+        analyser.distance(target_fp, blocks[next].mfcc);
 
     if (next_dist * (1.0 - stickyness) < closest_dist * stickyness) {
         return next;
@@ -85,8 +85,8 @@ inline double layerDistance(
     const std::vector<double>& primary_a, const std::vector<double>& secondary_a,
     const std::vector<double>& primary_b, const std::vector<double>& secondary_b,
     const SearchParams& params) {
-    const auto sec_start = static_cast<std::size_t>(std::max(0, params.secondary_start));
-    const auto sec_end   = static_cast<std::size_t>(std::max(0, params.secondary_end));
+    const auto sec_start = static_cast<std::size_t>(std::max(0, params.spectral_start));
+    const auto sec_end   = static_cast<std::size_t>(std::max(0, params.spectral_end));
 
     if (params.blend_ratio >= 1.0) {
         // Pure primary.
@@ -125,15 +125,15 @@ inline double fullScore(
 
     // Raw comparison.
     double raw_dist = detail::layerDistance(
-        target.fingerprint, target.secondary_fingerprint,
-        candidate.fingerprint, candidate.secondary_fingerprint,
+        target.mfcc, target.spectral,
+        candidate.mfcc, candidate.spectral,
         params);
 
     // Normalised comparison (if n_ratio > 0).
     if (params.n_ratio > 0.0) {
         double norm_dist = detail::layerDistance(
-            target.normalised_fingerprint, target.normalised_secondary_fingerprint,
-            candidate.normalised_fingerprint, candidate.normalised_secondary_fingerprint,
+            target.normalised_mfcc, target.normalised_spectral,
+            candidate.normalised_mfcc, candidate.normalised_spectral,
             params);
         raw_dist = detail::blend(raw_dist, norm_dist, params.n_ratio);
     }

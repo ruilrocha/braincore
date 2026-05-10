@@ -1,78 +1,60 @@
-/**
- * @file MelFilterBank.h
- *
- * A bank of number of Mel frequency triangular filters.
- *
- * This file is part of the Aquila DSP library.
- * Aquila is free software, licensed under the MIT/X11 License. A copy of
- * the license is provided with the library in the LICENSE file.
- *
- * @package Aquila
- * @version 3.0.0-dev
- * @author Zbigniew Siciarz
- * @date 2007-2014
- * @license http://www.opensource.org/licenses/mit-license.php MIT
- * @since 0.3.3
- */
+#pragma once
 
-#ifndef MELFILTERBANK_H
-#define MELFILTERBANK_H
-
-#include "../global.h"
-#include "MelFilter.h"
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
-namespace Aquila
-{
+namespace audio {
+
+/// Sparse entry: a single non-zero filter weight at a given FFT bin.
+struct MelWeight {
+    std::size_t bin;
+    double weight;
+};
+
+/**
+ * Mel-frequency triangular filter bank stored as a sparse weight matrix.
+ *
+ * Construction pre-computes all non-zero filter weights. At runtime,
+ * `apply()` accepts a pre-computed magnitude spectrum and returns one
+ * energy value per filter — no complex arithmetic, no redundant magnitude
+ * calculations.
+ *
+ * C-friendly: all data is in flat vectors, no virtual methods.
+ */
+class MelFilterBank {
+public:
     /**
-     * A wrapper class for a vector of triangular filters.
+     * @param sample_rate   Audio sample rate in Hz.
+     * @param fft_size      Full FFT size (N, not N/2+1).
+     * @param num_filters   Number of Mel filters in the bank.
+     * @param mel_filter_width Width of each filter in Mel scale (default 200).
      */
-    class AQUILA_EXPORT MelFilterBank
-    {
-    public:
-        MelFilterBank(FrequencyType sampleFrequency, std::size_t length,
-                      FrequencyType melFilterWidth = 200.0,
-                      std::size_t bankSize = 24);
+    MelFilterBank(double sample_rate, std::size_t fft_size,
+                  std::size_t num_filters = 24, double mel_filter_width = 200.0);
 
-        [[nodiscard]] std::vector<double> applyAll(const SpectrumType &frameSpectrum) const;
+    /**
+     * Apply all filters to a pre-computed magnitude spectrum.
+     *
+     * @param magnitude  Magnitude spectrum of size fft_size/2+1 (half-spectrum).
+     * @return Vector of filter energies (size = num_filters).
+     */
+    [[nodiscard]] std::vector<double> apply(const std::vector<double>& magnitude) const;
 
-        /**
-         * Returns sample frequency of all filters.
-         *
-         * @return sample frequency in Hz
-         */
-        [[nodiscard]] FrequencyType getSampleFrequency() const { return m_sampleFrequency; }
+    [[nodiscard]] std::size_t size() const { return num_filters_; }
 
-        /**
-         * Returns spectrum size of any filter spectra.
-         *
-         * @return spectrum size
-         */
-        [[nodiscard]] std::size_t getSpectrumLength() const { return N; }
+private:
+    std::size_t num_filters_;
 
-        /**
-         * Returns the number of filters in bank.
-         *
-         * @return number of filters
-         */
-        [[nodiscard]] std::size_t size() const { return m_filters.size(); }
+    // Sparse matrix stored as per-filter lists of (bin, weight) pairs.
+    std::vector<std::vector<MelWeight>> weights_;
 
-    private:
-        /**
-         * Vector of Mel filters.
-         */
-        std::vector<MelFilter> m_filters;
+    static double linearToMel(double f) {
+        return 1127.01048 * std::log(1.0 + f / 700.0);
+    }
+    static double melToLinear(double m) {
+        return 700.0 * (std::exp(m / 1127.01048) - 1.0);
+    }
+};
 
-        /**
-         * Sample frequency of the filtered signal.
-         */
-        FrequencyType m_sampleFrequency;
-
-        /**
-         * Filter spectrum size (equal to zero-padded length of signal frame).
-         */
-        std::size_t N;
-    };
-}
-#endif // MELFILTERBANK_H
+} // namespace audio

@@ -9,7 +9,7 @@ namespace audio::port {
 /**
  * Port: loading and saving audio files.
  *
- * Lives in the domain layer — concrete implementations (LibSndFileGateway)
+ * Lives in the domain layer — concrete implementations (DrLibsGateway)
  * are adapters in src/adapter/gateway/.
  */
 class ISoundFileGateway {

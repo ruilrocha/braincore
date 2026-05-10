@@ -176,7 +176,7 @@ int main(int argc, char* argv[]) {
     params.alpha = 1.0;  params.stickyness = 0.6;  params.overlap = 0;
     params.usage_falloff = 1.0;  params.usage_weight = 0.8;
     params.blend_ratio = 1.0;  params.n_ratio = 0.7;
-    params.secondary_start = 0;  params.secondary_end = 100;
+    params.spectral_start = 0;  params.spectral_end = 100;
     params.momentum = 0.0;  params.momentum_decay = 0.95;
     params.grain_size = 1.0;  params.grain_scatter = 0.0;  params.grain_density = 1.0;
     params.grain_size_variation = 0.1;  params.grain_amp_variation = 0.3;
@@ -351,21 +351,31 @@ int main(int argc, char* argv[]) {
                             "🔄 Rebuilding brain: block_size={}, window={}, search={}\n",
                             cmd.block_size, cmd.window_shape, cmd.search_strategy);
 
-                        source_config.block_size = cmd.block_size;
-                        source_config.overlap    = cmd.overlap;
-                        source_config.window     = windowFromOrdinal(cmd.window_shape);
-                        target_config.block_size = cmd.block_size;
-                        target_config.overlap    = cmd.overlap;
-                        target_config.window     = windowFromOrdinal(cmd.window_shape);
-                        num_synapses             = cmd.num_synapses;
-
                         if (!cmd.search_strategy.empty()) {
                             current_search_name = cmd.search_strategy;
                             search = makeSearch(current_search_name);
                         }
 
-                        brain = buildBrain();
-                        std::cout << std::format("Brain rebuilt: {} blocks\n", brain.size());
+                        // Only rebuild if block config changed; otherwise just swap strategy.
+                        const bool config_changed =
+                            cmd.block_size != source_config.block_size
+                            || cmd.overlap != source_config.overlap
+                            || windowFromOrdinal(cmd.window_shape) != source_config.window;
+
+                        if (config_changed) {
+                            source_config.block_size = cmd.block_size;
+                            source_config.overlap    = cmd.overlap;
+                            source_config.window     = windowFromOrdinal(cmd.window_shape);
+                            target_config.block_size = cmd.block_size;
+                            target_config.overlap    = cmd.overlap;
+                            target_config.window     = windowFromOrdinal(cmd.window_shape);
+                            num_synapses             = cmd.num_synapses;
+                            brain = buildBrain();
+                            std::cout << std::format("Brain rebuilt: {} blocks\n", brain.size());
+                        } else {
+                            brain.setSearchStrategy(search);
+                            std::cout << std::format("Search strategy set to '{}'\n", current_search_name);
+                        }
 
                         cfg.block_size      = cmd.block_size;
                         cfg.overlap         = cmd.overlap;

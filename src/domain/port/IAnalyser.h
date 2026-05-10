@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "../Fingerprints.h"
+#include "../AudioPrint.h"
 
 namespace audio::port {
 
@@ -32,13 +32,13 @@ public:
         const std::vector<double>& block, int sample_rate) const = 0;
 
     /**
-     * Analyse a block and produce the full set of fingerprints at once.
+     * Analyse a block and produce the full AudioPrint at once.
      *
      * @param block       Mono audio samples (already windowed if desired).
      * @param sample_rate Sample rate in Hz.
-     * @return            A Fingerprints bundle (primary, secondary, dominant freq).
+     * @return            An AudioPrint bundle (mfcc, spectral, dominant freq).
      */
-    [[nodiscard]] virtual Fingerprints analyse(
+    [[nodiscard]] virtual AudioPrint analyse(
         const std::vector<double>& block, int sample_rate) const = 0;
 
     // ── Distance computation ───────────────────────────────────────────

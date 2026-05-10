@@ -128,8 +128,8 @@ int brainio_brain_find_match(
     sp.usage_weight = params.usage_weight;
     sp.blend_ratio = params.blend_ratio;
     sp.n_ratio = params.n_ratio;
-    sp.secondary_start = params.secondary_start;
-    sp.secondary_end = params.secondary_end;
+    sp.spectral_start = params.spectral_start;
+    sp.spectral_end = params.spectral_end;
     sp.grain_size = params.grain_size;
     sp.grain_scatter = params.grain_scatter;
     sp.grain_density = params.grain_density;
@@ -141,7 +141,7 @@ int brainio_brain_find_match(
     auto fps = brain->analyser->analyse(target_samples, sample_rate);
 
     // Find best match — returns a reference to the matched block.
-    const Block& match = brain->brain.findBestMatch(fps.primary, sp);
+    const Block& match = brain->brain.findBestMatch(fps.mfcc, sp);
     *out_samples = match.samples.data();
     *out_size = match.samples.size();
 
@@ -163,8 +163,8 @@ BrainIO_SearchParams brainio_default_params(void) {
     p.usage_weight = 0.0;
     p.blend_ratio = 1.0;
     p.n_ratio = 0.0;
-    p.secondary_start = 0;
-    p.secondary_end = 100;
+    p.spectral_start = 0;
+    p.spectral_end = 100;
     p.grain_size = 1.0;
     p.grain_scatter = 0.0;
     p.grain_density = 1.0;

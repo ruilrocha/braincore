@@ -77,7 +77,7 @@ static std::string buildStateJson(const SearchParams& p,
         R"("stutter_chance":{},"stutter_count":{},)"
         R"("envelope_shape":{},"envelope_amount":{})",
         p.alpha, p.stickyness, p.overlap, p.usage_falloff, p.usage_weight,
-        p.blend_ratio, p.n_ratio, p.secondary_start, p.secondary_end,
+        p.blend_ratio, p.n_ratio, p.spectral_start, p.spectral_end,
         p.momentum, p.momentum_decay,
         p.grain_size, p.grain_scatter, p.grain_density,
         p.grain_size_variation, p.grain_amp_variation,
@@ -235,8 +235,8 @@ void WebSocketParamController::applyParam(const std::string& name, double value)
     else if (name == "usage_weight")         params_.usage_weight = value;
     else if (name == "blend_ratio")          params_.blend_ratio = value;
     else if (name == "n_ratio")              params_.n_ratio = value;
-    else if (name == "secondary_start")      params_.secondary_start = static_cast<int>(value);
-    else if (name == "secondary_end")        params_.secondary_end = static_cast<int>(value);
+    else if (name == "secondary_start")      params_.spectral_start = static_cast<int>(value);
+    else if (name == "secondary_end")        params_.spectral_end = static_cast<int>(value);
     else if (name == "momentum")             params_.momentum = value;
     else if (name == "momentum_decay")       params_.momentum_decay = value;
     else if (name == "grain_size")           params_.grain_size = value;

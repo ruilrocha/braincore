@@ -89,21 +89,19 @@
     </select>
   </div>
   <div class="param">
-    <label>Search algorithm</label>
+    <label>Search algorithm <span style="font-size:0.75em;color:#4caf50">⚡ live</span></label>
     <select id="cfgSearch">
-      <option value="closest" selected>Closest</option>
-      <option value="reverse">Reverse</option>
-      <option value="synaptic">Synaptic</option>
-      <option value="random">Random</option>
-      <option value="weighted_random">Weighted Random</option>
+      <option value="closest" selected>Closest Match</option>
+      <option value="synaptic">Synaptic (graph walk)</option>
       <option value="markov">Markov Chain</option>
-      <option value="momentum">Momentum</option>
+      <option value="momentum">Momentum (trajectory)</option>
     </select>
   </div>
   <div class="param" id="synapsesRow" style="display:none">
     <label>Num synapses</label>
     <input type="number" id="cfgSynapses" value="1000" min="10" max="5000" step="10">
   </div>
+  <p style="font-size:0.75em;color:#888;margin:6px 0 10px 0;">Search algorithm can be changed during playback without interruption. Block size / window changes require a rebuild.</p>
   <button class="btn btn-rebuild" id="rebuildBtn">🔄 Rebuild Brain</button>
 </div>
 
@@ -121,9 +119,9 @@
 </div>
 
 <div class="section">
-  <h2>Fingerprint Blend</h2>
-  <div class="param"><label>Blend ratio (prim/sec)</label><input type="range" min="0" max="1" step="0.01" data-param="blend_ratio"><span class="val">1.00</span></div>
-  <div class="param"><label>N ratio (raw/norm)</label><input type="range" min="0" max="1" step="0.01" data-param="n_ratio"><span class="val">0.00</span></div>
+  <h2>AudioPrint Blend</h2>
+  <div class="param"><label>Blend ratio (MFCC/Spectral)</label><input type="range" min="0" max="1" step="0.01" data-param="blend_ratio"><span class="val">1.00</span></div>
+  <div class="param"><label>N ratio (raw/normalised)</label><input type="range" min="0" max="1" step="0.01" data-param="n_ratio"><span class="val">0.00</span></div>
 </div>
 
 <div class="section">

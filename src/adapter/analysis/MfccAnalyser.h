@@ -11,10 +11,10 @@ namespace audio::adapter::analysis {
 /**
  * MFCC + FFT magnitude analyser (adapter implementing the IAnalyser port).
  *
- * Pipeline: IFft::forward() → Aquila MelFilterBank → IFft::dct().
+ * Pipeline: IFft::forward() → MelFilterBank (sparse) → IFft::dct().
  *
- * The primary fingerprint is MFCC coefficients (timbral envelope).
- * The secondary fingerprint is FFT magnitude bins (spectral detail).
+ * The primary AudioPrint is MFCC coefficients (timbral envelope).
+ * The secondary AudioPrint is FFT magnitude bins (spectral detail).
  * These two can be blended via SearchParams::blend_ratio.
  */
 class MfccAnalyser final : public port::IAnalyser {
