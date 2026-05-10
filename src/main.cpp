@@ -1,45 +1,40 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <csignal>
 #include <filesystem>
 #include <format>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Adapters (outermost layer)
 #include "adapter/analysis/MfccAnalyser.h"
+#include "adapter/control/WebSocketParamController.h"
 #include "adapter/effects/FftwSpectralMorph.h"
-#include "adapter/gateway/LibSndFileGateway.h"
+#include "adapter/fft/PocketfftBackend.h"
+#include "adapter/gateway/DrLibsGateway.h"
+#include "adapter/gateway/DrLibsRecorder.h"
 #include "adapter/playback/MiniaudioOutput.h"
-#include "adapter/search/ClosestSearch.h"
-// Swap in for different search behaviour:
-// #include "adapter/search/ReverseSearch.h"
-// #include "adapter/search/SynapticSearch.h"
-// #include "adapter/search/RandomSearch.h"
-// #include "adapter/search/WeightedRandomSearch.h"
-// #include "adapter/search/MarkovChainSearch.h"
-// #include "adapter/search/MomentumSearch.h"
 
 // Domain (innermost layer)
 #include "domain/BlockConfig.h"
 #include "domain/Brain.h"
+#include "domain/Command.h"
 #include "domain/SearchParams.h"
 #include "domain/Sound.h"
 
 // Use-case layer
 #include "usecase/SoundProcessor.h"
 #include "usecase/StreamProcessor.h"
+#include "usecase/UiHelpers.h"
 
-// ── Path resolution ────────────────────────────────────────────────────
-#ifndef PROJECT_ROOT
-#define PROJECT_ROOT "."
-#endif
-
-static std::string resolvePath(const std::string& relative) {
-    return (std::filesystem::path(PROJECT_ROOT) / relative).string();
-}
+using audio::ui::resolvePath;
+using audio::ui::isAudioFile;
+using audio::ui::makeSearch;
+using audio::ui::windowFromOrdinal;
 
 // ── CLI helpers ────────────────────────────────────────────────────────
 static void printUsage(const char* prog) {
@@ -50,47 +45,42 @@ static void printUsage(const char* prog) {
         "  batch      Process target offline, save result to file\n"
         "  stream     Stream target through speakers in real-time (loops)\n"
         "  infinite   Generate infinite landscape from brain sources\n"
+        "  ui         Interactive UI mode — control everything from the browser\n"
         "\n"
         "Options:\n"
         "  -i <path>  Brain source sound (repeatable, at least one required)\n"
         "  -d <dir>   Load all audio files in a directory as brain sources\n"
         "  -t <path>  Target sound (required for batch and stream modes)\n"
         "  -o <path>  Output file path (default: sounds/target.wav)\n"
+        "  -r <path>  Record stream/infinite output to WAV file\n"
         "  -h         Show this help message\n"
         "\n"
         "Examples:\n"
         "  {} -i sounds/a.wav -i sounds/b.wav -t sounds/target.wav\n"
         "  {} stream -d sounds/brain/ -t sounds/target.wav\n"
-        "  {} infinite -d sounds/brain/\n",
-        prog, prog, prog, prog);
+        "  {} infinite -d sounds/brain/\n"
+        "  {} stream -i sounds/a.wav -t sounds/target.wav -r recording.wav\n"
+        "  {} ui -d sounds/SAMPLES/\n",
+        prog, prog, prog, prog, prog, prog);
 }
 
 // ── Signal handler for graceful Ctrl+C shutdown ────────────────────────
+static std::atomic g_quit{false};
 static audio::usecase::StreamProcessor* g_stream = nullptr;
 
 static void signalHandler(int /*sig*/) {
+    g_quit = true;
     if (g_stream) g_stream->stop();
-}
-
-// ── Audio file detection ───────────────────────────────────────────────
-static bool isAudioFile(const std::filesystem::path& path) {
-    static constexpr std::array extensions = {
-        ".wav", ".flac", ".ogg", ".aif", ".aiff", ".w64", ".rf64",
-        ".raw", ".caf", ".mp3",
-    };
-    auto ext = path.extension().string();
-    // Case-insensitive comparison.
-    for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return std::ranges::any_of(extensions, [&ext](const auto* e) { return ext == e; });
 }
 
 int main(int argc, char* argv[]) {
     // ── CLI argument parsing ───────────────────────────────────────────
-    enum class Mode { Batch, Stream, Infinite };
+    enum class Mode { Batch, Stream, Infinite, Ui };
     auto mode = Mode::Batch;
     std::vector<std::string> brain_paths;
     std::string target_path;
     std::string output_path = "sounds/target.wav";
+    std::string recording_path;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -100,18 +90,12 @@ int main(int argc, char* argv[]) {
             return 0;
         }
         if (arg == "-i") {
-            if (++i >= argc) {
-                std::cerr << "Error: -i requires a path argument.\n";
-                return 1;
-            }
+            if (++i >= argc) { std::cerr << "Error: -i requires a path argument.\n"; return 1; }
             brain_paths.emplace_back(argv[i]);
             continue;
         }
         if (arg == "-d") {
-            if (++i >= argc) {
-                std::cerr << "Error: -d requires a directory path argument.\n";
-                return 1;
-            }
+            if (++i >= argc) { std::cerr << "Error: -d requires a directory path argument.\n"; return 1; }
             const std::filesystem::path dir = resolvePath(argv[i]);
             if (!std::filesystem::is_directory(dir)) {
                 std::cerr << std::format("Error: '{}' is not a directory.\n", argv[i]);
@@ -119,7 +103,6 @@ int main(int argc, char* argv[]) {
             }
             for (const auto& entry : std::filesystem::directory_iterator(dir)) {
                 if (entry.is_regular_file() && isAudioFile(entry.path())) {
-                    // Store the relative path (relative to PROJECT_ROOT).
                     brain_paths.push_back(
                         std::filesystem::relative(entry.path(), PROJECT_ROOT).string());
                 }
@@ -134,25 +117,25 @@ int main(int argc, char* argv[]) {
             continue;
         }
         if (arg == "-t") {
-            if (++i >= argc) {
-                std::cerr << "Error: -t requires a path argument.\n";
-                return 1;
-            }
+            if (++i >= argc) { std::cerr << "Error: -t requires a path argument.\n"; return 1; }
             target_path = argv[i];
             continue;
         }
         if (arg == "-o") {
-            if (++i >= argc) {
-                std::cerr << "Error: -o requires a path argument.\n";
-                return 1;
-            }
+            if (++i >= argc) { std::cerr << "Error: -o requires a path argument.\n"; return 1; }
             output_path = argv[i];
+            continue;
+        }
+        if (arg == "-r") {
+            if (++i >= argc) { std::cerr << "Error: -r requires a path argument.\n"; return 1; }
+            recording_path = argv[i];
             continue;
         }
         // Positional: mode keyword
         if (arg == "batch")          mode = Mode::Batch;
         else if (arg == "stream")    mode = Mode::Stream;
         else if (arg == "infinite")  mode = Mode::Infinite;
+        else if (arg == "ui")        mode = Mode::Ui;
         else {
             std::cerr << std::format("Unknown argument: {}\n", arg);
             printUsage(argv[0]);
@@ -166,72 +149,64 @@ int main(int argc, char* argv[]) {
         printUsage(argv[0]);
         return 1;
     }
-    if (mode != Mode::Infinite && target_path.empty()) {
+    if (mode != Mode::Infinite && mode != Mode::Ui && target_path.empty()) {
         std::cerr << "Error: a target sound is required (-t <path>) for batch/stream modes.\n";
         printUsage(argv[0]);
         return 1;
     }
 
-    // ── Adapter wiring (Composition Root) ──────────────────────────────
-    auto analyser       = std::make_shared<audio::adapter::analysis::MfccAnalyser>();
-    auto search         = std::make_shared<audio::adapter::search::ClosestSearch>();
-    auto spectral_morph = std::make_shared<audio::adapter::effects::FftwSpectralMorph>();
+    // ── Shared adapters (Composition Root) ─────────────────────────────
+    auto fft_backend    = std::make_shared<audio::adapter::fft::PocketfftBackend>();
+    auto analyser       = std::make_shared<audio::adapter::analysis::MfccAnalyser>(fft_backend);
+    auto spectral_morph = std::make_shared<audio::adapter::effects::SpectralMorph>(fft_backend);
     auto audio_output   = std::make_shared<audio::adapter::playback::MiniaudioOutput>();
-    audio::adapter::gateway::LibSndFileGateway gateway;
+    audio::adapter::gateway::DrLibsGateway gateway;
+
+    std::string current_search_name = "closest";
+    auto search = makeSearch(current_search_name);
 
     // ── Block configuration ────────────────────────────────────────────
-    audio::BlockConfig source_config;
-    source_config.block_size = 4096;
-    source_config.overlap    = 0;
-    source_config.window     = audio::WindowShape::Gaussian;
-
-    audio::BlockConfig target_config;
-    target_config.block_size = 4096;
-    target_config.overlap    = 0;
-    target_config.window     = audio::WindowShape::Gaussian;
+    audio::BlockConfig source_config{4096, 0, audio::WindowShape::Gaussian};
+    audio::BlockConfig target_config{4096, 0, audio::WindowShape::Gaussian};
 
     // ── Search parameters ──────────────────────────────────────────────
     audio::SearchParams params;
-    params.alpha            = 1.0;
-    params.stickyness       = 0.6;
-    params.overlap          = 0;
-    params.usage_falloff    = 1.0;
-    params.usage_weight     = 0.8;
-    params.blend_ratio      = 1.0;
-    params.n_ratio          = 0.7;
-    params.secondary_start  = 0;
-    params.secondary_end    = 100;
-    params.momentum         = 0.0;
-    params.momentum_decay   = 0.95;
-    params.grain_size       = 1.0;
-    params.grain_scatter    = 0.0;
-    params.grain_density    = 1.0;
-    params.grain_size_variation = 0.1;
-    params.grain_amp_variation  = 0.3;
-    params.grain_pitch_jitter   = 0.2;
-    params.grain_hop_randomness = 0.2;
-    params.spectral_morph   = 0.2;
-    params.stutter_chance   = 0.0;
-    params.stutter_count    = 2;
-    params.envelope_shape   = 0;
-    params.envelope_amount  = 0.0;
+    params.alpha = 1.0;  params.stickyness = 0.6;  params.overlap = 0;
+    params.usage_falloff = 1.0;  params.usage_weight = 0.8;
+    params.blend_ratio = 1.0;  params.n_ratio = 0.7;
+    params.secondary_start = 0;  params.secondary_end = 100;
+    params.momentum = 0.0;  params.momentum_decay = 0.95;
+    params.grain_size = 1.0;  params.grain_scatter = 0.0;  params.grain_density = 1.0;
+    params.grain_size_variation = 0.1;  params.grain_amp_variation = 0.3;
+    params.grain_pitch_jitter = 0.2;  params.grain_hop_randomness = 0.2;
+    params.spectral_morph = 0.2;
+    params.stutter_chance = 0.0;  params.stutter_count = 2;
+    params.envelope_shape = 0;  params.envelope_amount = 0.0;
 
-    // ── Build the Brain ────────────────────────────────────────────────
-    audio::Brain brain(analyser, search, source_config);
+    int num_synapses = 1000;
 
-    for (const auto& rel_path : brain_paths) {
-        const std::string full_path = resolvePath(rel_path);
-        auto sound = gateway.loadSound(full_path);
-        if (!sound) {
-            std::cerr << std::format("Failed to load brain sound: {}\n", full_path);
-            continue;
+    // ── Helper: load sounds into brain ─────────────────────────────────
+    auto buildBrain = [&]() -> audio::Brain {
+        audio::Brain brain(analyser, search, source_config);
+        for (const auto& rel_path : brain_paths) {
+            const std::string full_path = resolvePath(rel_path);
+            auto sound = gateway.loadSound(full_path);
+            if (!sound) {
+                std::cerr << std::format("Failed to load brain sound: {}\n", full_path);
+                continue;
+            }
+            std::cout << std::format("Brain source '{}': {} ch, {} samples, {} Hz\n",
+                rel_path, sound->getNumChannels(), sound->getNumSamples(), sound->getSampleRate());
+            brain.addSound(*sound, rel_path);
         }
-        std::cout << std::format(
-            "Brain source '{}': {} ch, {} samples, {} Hz\n",
-            rel_path, sound->getNumChannels(),
-            sound->getNumSamples(), sound->getSampleRate());
-        brain.addSound(*sound, rel_path);
-    }
+        if (current_search_name == "synaptic" || current_search_name == "markov") {
+            std::cout << std::format("Building synapses ({})...\n", num_synapses);
+            brain.buildSynapses(static_cast<std::size_t>(num_synapses));
+        }
+        return brain;
+    };
+
+    audio::Brain brain = buildBrain();
 
     if (brain.empty()) {
         std::cerr << "Brain is empty — no usable source sounds were loaded.\n";
@@ -239,28 +214,214 @@ int main(int argc, char* argv[]) {
     }
     std::cout << std::format("Brain ready: {} blocks\n", brain.size());
 
-    // Optional: pre-compute synapse graph for SynapticSearch / MarkovChainSearch.
-    // brain.buildSynapses(1000);
+    // ── Probe sample rate and channels from first source ───────────────
+    int default_sr = 44100;
+    int default_ch = 2;
+    if (!brain.blocks().empty() && !brain.sources().empty()) {
+        if (auto probe = gateway.loadSound(resolvePath(brain_paths[0]))) {
+            default_sr = probe->getSampleRate();
+            default_ch = probe->getNumChannels();
+        }
+    }
 
+    std::signal(SIGINT, signalHandler);
+
+    // ════════════════════════════════════════════════════════════════════
+    // ── Mode: UI (interactive browser control) ─────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    if (mode == Mode::Ui) {
+        std::cout << "Starting UI mode (Ctrl+C to quit)...\n";
+
+        auto param_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>();
+        param_ctrl->setParams(params);
+
+        // Sync initial config state.
+        audio::port::IParamController::ConfigState cfg;
+        cfg.block_size      = source_config.block_size;
+        cfg.overlap         = source_config.overlap;
+        cfg.window_shape    = static_cast<int>(source_config.window);
+        cfg.search_strategy = current_search_name;
+        cfg.num_synapses    = num_synapses;
+        cfg.target_path     = target_path;
+        cfg.playing         = false;
+        cfg.recording       = false;
+        param_ctrl->setConfigState(cfg);
+        param_ctrl->start();
+
+        std::unique_ptr<audio::usecase::StreamProcessor> streamer;
+        std::thread audio_thread;
+        bool playing = false;
+        bool recording = false;
+        std::shared_ptr<audio::adapter::gateway::DrLibsRecorder> recorder;
+
+        // Main event loop: poll commands every 100ms.
+        while (!g_quit) {
+            while (auto cmd_opt = param_ctrl->pollCommand()) {
+                std::visit([&]<typename T0>(T0&& cmd) {
+                    using T = std::decay_t<T0>;
+
+                    if constexpr (std::is_same_v<T, audio::StartCommand>) {
+                        if (playing) return;
+                        params = param_ctrl->getParams();
+
+                        streamer = std::make_unique<audio::usecase::StreamProcessor>(
+                            params, target_config, audio_output, spectral_morph,
+                            param_ctrl, recorder);
+                        g_stream = streamer.get();
+                        playing = true;
+                        cfg.playing = true;
+                        param_ctrl->setConfigState(cfg);
+
+                        // Decide mode: if target_path is set, use stream; otherwise infinite.
+                        const std::string tgt = cmd.target_path.empty()
+                            ? target_path : cmd.target_path;
+                        if (!tgt.empty()) {
+                            // Stream mode with a target.
+                            std::cout << std::format("▶ Starting stream (target: {})...\n", tgt);
+                            cfg.target_path = tgt;
+                            param_ctrl->setConfigState(cfg);
+                            audio_thread = std::thread([&, tgt] {
+                                auto target_sound = gateway.loadSound(resolvePath(tgt));
+                                if (!target_sound) {
+                                    std::cerr << std::format("Failed to load target: {}\n", tgt);
+                                    return;
+                                }
+                                streamer->stream(brain, *target_sound);
+                            });
+                        } else {
+                            // Infinite mode.
+                            std::cout << "▶ Starting infinite landscape...\n";
+                            audio_thread = std::thread([&] {
+                                streamer->streamInfinite(brain, default_sr, default_ch);
+                            });
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, audio::StopCommand>) {
+                        if (!playing) return;
+                        std::cout << "■ Stopping playback...\n";
+                        streamer->stop();
+                        if (audio_thread.joinable()) audio_thread.join();
+                        g_stream = nullptr;
+                        streamer.reset();
+                        playing = false;
+                        cfg.playing = false;
+                        param_ctrl->setConfigState(cfg);
+                    }
+                    else if constexpr (std::is_same_v<T, audio::RecordCommand>) {
+                        if (cmd.enable && !recording) {
+                            recorder = std::make_shared<audio::adapter::gateway::DrLibsRecorder>();
+                            std::string path = cmd.path.empty()
+                                ? resolvePath("sounds/recording.wav") : resolvePath(cmd.path);
+                            if (recorder->open(path, default_sr, default_ch)) {
+                                recording = true;
+                                cfg.recording = true;
+                                param_ctrl->setConfigState(cfg);
+                                std::cout << std::format("⏺ Recording to {}\n", path);
+                                // Attach to running streamer if playing.
+                                if (streamer) streamer->setRecorder(recorder);
+                            } else {
+                                std::cerr << std::format("Failed to open recording: {}\n", path);
+                                recorder.reset();
+                            }
+                        } else if (!cmd.enable && recording) {
+                            // Detach from streamer first, then close.
+                            if (streamer) streamer->setRecorder(nullptr);
+                            recorder->close();
+                            recorder.reset();
+                            recording = false;
+                            cfg.recording = false;
+                            param_ctrl->setConfigState(cfg);
+                            std::cout << "⏹ Recording stopped.\n";
+                        }
+                    }
+                    else if constexpr (std::is_same_v<T, audio::RebuildCommand>) {
+                        if (playing) {
+                            std::cout << "■ Stopping for rebuild...\n";
+                            streamer->stop();
+                            if (audio_thread.joinable()) audio_thread.join();
+                            g_stream = nullptr;
+                            streamer.reset();
+                            playing = false;
+                        }
+
+                        std::cout << std::format(
+                            "🔄 Rebuilding brain: block_size={}, window={}, search={}\n",
+                            cmd.block_size, cmd.window_shape, cmd.search_strategy);
+
+                        source_config.block_size = cmd.block_size;
+                        source_config.overlap    = cmd.overlap;
+                        source_config.window     = windowFromOrdinal(cmd.window_shape);
+                        target_config.block_size = cmd.block_size;
+                        target_config.overlap    = cmd.overlap;
+                        target_config.window     = windowFromOrdinal(cmd.window_shape);
+                        num_synapses             = cmd.num_synapses;
+
+                        if (!cmd.search_strategy.empty()) {
+                            current_search_name = cmd.search_strategy;
+                            search = makeSearch(current_search_name);
+                        }
+
+                        brain = buildBrain();
+                        std::cout << std::format("Brain rebuilt: {} blocks\n", brain.size());
+
+                        cfg.block_size      = cmd.block_size;
+                        cfg.overlap         = cmd.overlap;
+                        cfg.window_shape    = cmd.window_shape;
+                        cfg.search_strategy = current_search_name;
+                        cfg.num_synapses    = num_synapses;
+                        cfg.playing         = false;
+                        param_ctrl->setConfigState(cfg);
+                    }
+                }, *cmd_opt);
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        // Cleanup on Ctrl+C.
+        if (playing) {
+            streamer->stop();
+            if (audio_thread.joinable()) audio_thread.join();
+        }
+        if (recorder && recorder->isOpen()) recorder->close();
+        param_ctrl->stop();
+        std::cout << "\nUI mode stopped.\n";
+        return 0;
+    }
+
+    // ════════════════════════════════════════════════════════════════════
     // ── Mode: Infinite landscape ───────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
     if (mode == Mode::Infinite) {
         std::cout << "Starting infinite landscape (Ctrl+C to stop)...\n";
-        auto streamer = std::make_unique<audio::usecase::StreamProcessor>(
-            params, target_config, audio_output, spectral_morph);
-        g_stream = streamer.get();
-        std::signal(SIGINT, signalHandler);
 
-        int sr = 44100;
-        if (!brain.blocks().empty() && !brain.sources().empty()) {
-            if (auto probe = gateway.loadSound(resolvePath(brain_paths[0])))
-                sr = probe->getSampleRate();
+        auto param_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>();
+        param_ctrl->setParams(params);
+        param_ctrl->start();
+
+        std::shared_ptr<audio::adapter::gateway::DrLibsRecorder> recorder;
+        if (!recording_path.empty()) {
+            recorder = std::make_shared<audio::adapter::gateway::DrLibsRecorder>();
+            if (const std::string rec_full = resolvePath(recording_path);
+                recorder->open(rec_full, default_sr, default_ch)) {
+                std::cout << std::format("Recording to {}\n", rec_full);
+            } else {
+                std::cerr << std::format("Failed to open recording file: {}\n",
+                                          resolvePath(recording_path));
+                recorder.reset();
+            }
         }
-        streamer->streamInfinite(brain, sr, 1);
+
+        auto streamer = std::make_unique<audio::usecase::StreamProcessor>(
+            params, target_config, audio_output, spectral_morph, param_ctrl, recorder);
+        g_stream = streamer.get();
+
+        streamer->streamInfinite(brain, default_sr, default_ch);
+        param_ctrl->stop();
         g_stream = nullptr;
         std::cout << "\nStream stopped.\n";
         return 0;
     }
-
 
     // ── Load target sound ──────────────────────────────────────────────
     const std::string target_full = resolvePath(target_path);
@@ -269,29 +430,48 @@ int main(int argc, char* argv[]) {
         std::cerr << std::format("Failed to load target: {}\n", target_full);
         return 1;
     }
-    std::cout << std::format(
-        "Target '{}': {} ch, {} samples, {} Hz\n",
-        target_path, target->getNumChannels(),
-        target->getNumSamples(), target->getSampleRate());
+    std::cout << std::format("Target '{}': {} ch, {} samples, {} Hz\n",
+        target_path, target->getNumChannels(), target->getNumSamples(), target->getSampleRate());
 
+    // ════════════════════════════════════════════════════════════════════
     // ── Mode: Real-time streaming ──────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
     if (mode == Mode::Stream) {
         std::cout << "Streaming in real-time (Ctrl+C to stop)...\n";
+
+        auto param_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>();
+        param_ctrl->setParams(params);
+        param_ctrl->start();
+
+        std::shared_ptr<audio::adapter::gateway::DrLibsRecorder> recorder;
+        if (!recording_path.empty()) {
+            recorder = std::make_shared<audio::adapter::gateway::DrLibsRecorder>();
+            const std::string rec_full = resolvePath(recording_path);
+            if (recorder->open(rec_full, target->getSampleRate(), target->getNumChannels())) {
+                std::cout << std::format("Recording to {}\n", rec_full);
+            } else {
+                std::cerr << std::format("Failed to open recording file: {}\n", rec_full);
+                recorder.reset();
+            }
+        }
+
         auto streamer = std::make_unique<audio::usecase::StreamProcessor>(
-            params, target_config, audio_output, spectral_morph);
+            params, target_config, audio_output, spectral_morph, param_ctrl, recorder);
         g_stream = streamer.get();
-        std::signal(SIGINT, signalHandler);
 
         if (!streamer->stream(brain, *target)) {
             std::cerr << "Failed to open audio device.\n";
             return 1;
         }
+        param_ctrl->stop();
         g_stream = nullptr;
         std::cout << "Stream finished.\n";
         return 0;
     }
 
+    // ════════════════════════════════════════════════════════════════════
     // ── Mode: Batch processing (default) ───────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
     audio::usecase::SoundProcessor processor(params, target_config, spectral_morph);
     audio::Sound result = processor.process(brain, *target);
 

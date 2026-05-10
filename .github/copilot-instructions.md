@@ -17,6 +17,7 @@ spectral morphing) can be applied during reconstruction.
   - **libsndfile** (v1.2.2) — audio file I/O (WAV, FLAC, etc.)
   - **FFTW** (v3.3.10) — real-to-complex FFT for spectral analysis
   - **miniaudio** (v0.11.18) — cross-platform audio playback (real-time output)
+  - **ixwebsocket** (v11.4.5) — WebSocket server for real-time parameter control
   - **Aquila** (in-tree, `src/aquila/`) — Mel filter bank and DCT
 - **Header guards:** Use `#pragma once` (not `#ifndef`).
 - **Linting/Formatting:** None configured yet; follow Google C++ Style Guide.
@@ -71,8 +72,10 @@ main.cpp                                ← Composition Root (wires adapters →
   │
   ├── src/adapter/                      ← ADAPTERS (outermost ring)
   │     ├── analysis/MfccAnalyser       ← implements port::IAnalyser
+  │     ├── control/WebSocketParamController ← implements port::IParamController
   │     ├── effects/FftwSpectralMorph   ← implements port::IBlockEffect
   │     ├── gateway/LibSndFileGateway   ← implements port::ISoundFileGateway
+  │     ├── gateway/LibSndFileRecorder  ← implements port::IRecorder
   │     ├── playback/MiniaudioOutput    ← implements port::IAudioOutput
   │     └── search/                     ← implements port::ISearchStrategy
   │           ├── ClosestSearch         ←   brute-force closest match
@@ -91,6 +94,7 @@ main.cpp                                ← Composition Root (wires adapters →
   │
   ├── src/domain/                       ← DOMAIN CORE (innermost ring)
   │     ├── Sound, Block, Brain         ← entities & aggregates
+  │     ├── Command                     ← value object (start/stop/record/rebuild commands)
   │     ├── Fingerprints                ← value object (primary + secondary + normalised)
   │     ├── BlockConfig                 ← value object (block_size, overlap, window shape)
   │     ├── WindowFunction              ← pure-math window functions (Hamming, Hann, etc.)
@@ -103,7 +107,12 @@ main.cpp                                ← Composition Root (wires adapters →
   │           ├── ISearchStrategy       ←   block-selection algorithm
   │           ├── ISoundFileGateway     ←   file I/O
   │           ├── IAudioOutput          ←   real-time audio playback
-  │           └── IBlockEffect          ←   block-pair effect processing (e.g. spectral morph)
+  │           ├── IBlockEffect          ←   block-pair effect processing (e.g. spectral morph)
+  │           ├── IParamController      ←   live params + commands (pollCommand/getParams/setParams)
+  │           └── IRecorder             ←   incremental audio recording (open/write/close)
+  │
+  ├── web/                              ← BROWSER CONTROL PANEL
+  │     └── control-panel.html          ← HTML/JS WebSocket client for live param control
   │
   └── src/aquila/                       ← in-tree DSP library (MelFilterBank, DCT)
 ```
@@ -121,23 +130,34 @@ main.cpp                                ← Composition Root (wires adapters →
 2. N source sounds are loaded via `ISoundFileGateway` and fed to `Brain::addSound()`,
    which segments each into blocks (with configurable overlap and window shape),
    fingerprints each block via the injected `IAnalyser::analyse()`, stores both
-   raw and normalised fingerprints, and stores the `Block` objects.
+   raw and normalised fingerprints, and stores the `Block` objects. Trailing blocks
+   shorter than `block_size` are zero-padded instead of being discarded.
 3. Optionally, `Brain::buildSynapses()` pre-computes a similarity graph for
    `SynapticSearch` and `MarkovChainSearch`.
 4. A target sound is loaded (except in infinite mode).
-5. Three runtime modes:
+5. Four runtime modes:
    - **Batch:** `SoundProcessor::process(brain, target)` processes the entire target
      offline and saves the result to a file.
    - **Stream:** `StreamProcessor::stream(brain, target)` loops the target
      continuously, processing one block at a time and pushing each to
      `IAudioOutput` for real-time playback. Runs until `stop()` / Ctrl+C.
-   - **Infinite:** `StreamProcessor::streamInfinite(brain, sr)` generates audio
+   - **Infinite:** `StreamProcessor::streamInfinite(brain, sr, ch)` generates audio
      endlessly by walking through the brain's timbral space using an evolving
      search fingerprint with additive drift, forced usage tracking, and
-     stuck-detection jiggling to prevent freezing.
-6. Post-processing effects (granular scatter, spectral morphing, stutter, envelope
+     stuck-detection jiggling to prevent freezing. Outputs stereo by default.
+   - **UI:** Interactive browser-controlled mode. `main.cpp` runs an event loop
+     that polls `IParamController::pollCommand()` for `Command` variants
+     (start/stop/record/rebuild). Playback runs in a background thread;
+     rebuild stops playback, re-ingests all sources with new `BlockConfig` and
+     search strategy, then waits for the next start command.
+6. In stream/infinite/ui modes, a `WebSocketParamController` runs on port 7770,
+   allowing real-time parameter updates and commands via the browser control panel.
+   `StreamProcessor` snapshots params from the controller each block.
+7. Post-processing effects (granular scatter, spectral morphing, stutter, envelope
    shaping) are applied per-block via shared `EffectHelpers`.
-7. In batch mode, the reconstructed `Sound` is saved via the gateway.
+8. In batch mode, the reconstructed `Sound` is saved via the gateway.
+9. In stream/infinite modes, output audio is optionally teed to an `IRecorder`
+   for WAV recording (enabled via `-r <path>`).
 
 ---
 
@@ -149,6 +169,7 @@ main.cpp                                ← Composition Root (wires adapters →
 | `Sound.h / .cpp` | Immutable multi-channel audio container. |
 | `Block.h` | Value type: samples, channel_samples, fingerprint, secondary_fingerprint, normalised variants, dominant_freq, usage, synapses. |
 | `Brain.h / .cpp` | Core aggregate. Constructor: `Brain(analyser, search, BlockConfig)`. Methods: `addSound()`, `findBestMatch()`, `buildSynapses()`, `jiggle()`, `depleteUsage()`, `activateSound()`, `isBlockActive()`. |
+| `Command.h` | Value object: `std::variant<StartCommand, StopCommand, RecordCommand, RebuildCommand>`. Used by UI mode to send lifecycle actions from the controller to the main event loop. |
 | `Fingerprints.h` | Value object: `primary`, `secondary`, `normalised_primary`, `normalised_secondary`, `dominant_freq`. |
 | `BlockConfig.h` | Value object: `block_size`, `overlap`, `window` (WindowShape enum). |
 | `WindowFunction.h` | Pure-math utility: `apply()` (7 window shapes), `normalise()` (DC-remove + peak-scale). |
@@ -160,12 +181,14 @@ main.cpp                                ← Composition Root (wires adapters →
 | `port/ISoundFileGateway.h` | Port: `loadSound(path)`, `saveSound(path, sound)`. |
 | `port/IAudioOutput.h` | Port: `open()`, `write()`, `close()` — real-time audio playback. |
 | `port/IBlockEffect.h` | Port: `apply(prev, current, amount)` — block-pair effect processing. |
+| `port/IParamController.h` | Port: `start()`, `stop()`, `getParams()`, `setParams()`, `pollCommand()`, `setConfigState()` — live parameter control and command queue. |
+| `port/IRecorder.h` | Port: `open(path, sr, ch)`, `write(samples)`, `close()` — incremental audio recording. |
 
 ### `src/usecase/` — Application Use-Cases
 | File | Description |
 |------|-------------|
 | `SoundProcessor.h / .cpp` | Batch processor. Constructor takes `SearchParams` + `BlockConfig` for the target. `process(brain, target)` returns a new `Sound`. |
-| `StreamProcessor.h / .cpp` | Real-time streaming processor. `stream(brain, target)` loops the target forever for real-time playback; `streamInfinite(brain, sr)` generates endless evolving soundscapes with drift + stuck-detection. Uses `IAudioOutput` port. |
+| `StreamProcessor.h / .cpp` | Real-time streaming processor. `stream(brain, target)` loops the target forever for real-time playback; `streamInfinite(brain, sr, ch)` generates endless evolving soundscapes with drift + stuck-detection. Accepts optional `IParamController` for live parameter updates and optional `IRecorder` for recording output. Uses `IAudioOutput` port. |
 | `EffectHelpers.h / .cpp` | Shared effect functions used by both processors: `granularScatter()`, `applyStutter()`, `applyEnvelope()`, `extractGrain()`. |
 
 ### `src/adapter/analysis/` — Analysis Adapters
@@ -177,6 +200,12 @@ main.cpp                                ← Composition Root (wires adapters →
 | File | Description |
 |------|-------------|
 | `LibSndFileGateway.h / .cpp` | Implements `ISoundFileGateway` using libsndfile. Reads/writes WAV. |
+| `LibSndFileRecorder.h / .cpp` | Implements `IRecorder` using libsndfile. Writes WAV (PCM 24-bit) incrementally via `sf_writef_double` for arbitrarily long recordings. |
+
+### `src/adapter/control/` — Control Adapters
+| File | Description |
+|------|-------------|
+| `WebSocketParamController.h / .cpp` | Implements `IParamController` using ixwebsocket. Runs `ix::WebSocketServer` on port 7770. Receives JSON `{"param":"name","value":0.5}` messages, updates mutex-guarded `SearchParams`. Companion HTML/JS control panel at `web/control-panel.html`. |
 
 ### `src/adapter/search/` — Search Strategy Adapters
 | File | Description |
@@ -245,8 +274,9 @@ All parameters are designed to be bound to UI sliders/knobs:
 ## Key Design Decisions
 
 1. **Hexagonal architecture** — Domain core has zero outward dependencies.
-2. **Five port interfaces** — `IAnalyser`, `ISearchStrategy`, `ISoundFileGateway`,
-   `IAudioOutput`, `IBlockEffect` are pure-virtual classes in `domain/port/`.
+2. **Seven port interfaces** — `IAnalyser`, `ISearchStrategy`, `ISoundFileGateway`,
+   `IAudioOutput`, `IBlockEffect`, `IParamController`, `IRecorder` are pure-virtual
+   classes in `domain/port/`.
 3. **Generic IAnalyser port** — The port exposes `compute()`, `analyse()`, and
    `distance()` without naming any specific technique (MFCC, FFT).  Concrete
    adapters decide what primary/secondary fingerprints represent.
@@ -287,6 +317,20 @@ All parameters are designed to be bound to UI sliders/knobs:
 19. **Thread-safe random** — `Random.h` provides `rng::randomDouble()` and
     `rng::randomIndex()` using thread-local `std::mt19937`, replacing all
     `std::rand()` usage for better quality and thread safety.
+20. **Stereo infinite mode** — `streamInfinite()` defaults to stereo (channels=2)
+    and probes the actual channel count from source files. Per-channel samples
+    are extracted from `match.channel_samples`.
+21. **Short block padding** — `Brain::addSound()` pads trailing blocks shorter
+    than `block_size` with silence (zeros) instead of discarding them, ensuring
+    no audio data is lost at sound boundaries.
+22. **WebSocket parameter control** — `WebSocketParamController` adapter runs an
+    `ix::WebSocketServer` on port 7770. A companion `web/control-panel.html`
+    connects via WebSocket and sends JSON `{"param":"name","value":0.5}` messages.
+    `StreamProcessor` snapshots params from the controller every block via
+    `activeParams()`, enabling real-time parameter tweaking during playback.
+23. **Output recording** — `LibSndFileRecorder` adapter implements `IRecorder`,
+    writing WAV (PCM 24-bit) incrementally. `StreamProcessor::outputBlock()`
+    tees interleaved audio to the recorder. Enabled via `-r <path>` CLI flag.
 
 ## Additional Notes
 - **Dependencies:** Managed via Conan and `conandata.yml`.
@@ -297,6 +341,19 @@ All parameters are designed to be bound to UI sliders/knobs:
 - **Changing search strategy:** replace `ClosestSearch` with any other search adapter
   in `main.cpp` (one-line swap). For `SynapticSearch` or `MarkovChainSearch`, call
   `brain.buildSynapses()` after loading all sounds.
+- **Recording output:** use `-r <path>` to record stream/infinite mode output to a
+  WAV file. The recording is written incrementally so arbitrarily long sessions work.
+- **Live parameter control:** In stream/infinite mode, a WebSocket server starts on
+  port 7770 automatically. Open `web/control-panel.html` in a browser and connect to
+  `ws://localhost:7770` to control all SearchParams via sliders in real-time.
+- **CLI examples:**
+  ```sh
+  ./brainio -i sounds/a.wav -t sounds/target.wav                    # batch
+  ./brainio stream -d sounds/SAMPLES/ -t sounds/target.wav          # stream
+  ./brainio infinite -d sounds/SAMPLES/                             # infinite
+  ./brainio stream -i sounds/a.wav -t sounds/t.wav -r rec.wav      # stream + record
+  ./brainio ui -d sounds/SAMPLES/                                   # interactive UI
+  ```
 
 ## Agent Guidance
 - **Trust these instructions.**

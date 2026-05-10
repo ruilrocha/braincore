@@ -3,84 +3,144 @@ project(brainio)
 
 set(CMAKE_CXX_STANDARD 23)
 
-find_package(SndFile REQUIRED)
-find_package(FFTW3 REQUIRED)
-find_package(miniaudio REQUIRED)
+# ── Build options ───────────────────────────────────────────────────────
+option(BRAINIO_USE_FFTW       "Enable FFTW FFT backend"        OFF)
+option(BRAINIO_USE_POCKETFFT  "Enable PocketFFT FFT backend"   ON)
+option(BRAINIO_USE_LIBSNDFILE "Enable libsndfile audio I/O"    OFF)
+option(BRAINIO_USE_DRLIBS     "Enable dr_libs audio I/O"       ON)
+option(BRAINIO_USE_MINIAUDIO  "Enable miniaudio playback"      ON)
+option(BRAINIO_USE_WEBSOCKET  "Enable WebSocket param control"  ON)
 
-file(GLOB_RECURSE AQUILA "src/aquila/*.cpp" "src/aquila/*.h")
+# ── Find packages based on options ─────────────────────────────────────
+if(BRAINIO_USE_FFTW)
+    find_package(FFTW3 REQUIRED)
+endif()
+if(BRAINIO_USE_LIBSNDFILE)
+    find_package(SndFile REQUIRED)
+endif()
+if(BRAINIO_USE_MINIAUDIO)
+    find_package(miniaudio REQUIRED)
+    find_package(readerwriterqueue REQUIRED)
+endif()
+if(BRAINIO_USE_WEBSOCKET)
+    find_package(ixwebsocket REQUIRED)
+endif()
 
-add_executable(brainio
-        src/main.cpp
+# ── brainio-core (domain + usecase + aquila) ───────────────────────────
+# Zero external dependencies — pure C++23. iOS-compilable.
+file(GLOB_RECURSE AQUILA_SOURCES "src/aquila/*.cpp")
 
-        # Domain (innermost layer)
-        src/domain/Brain.cpp
-        src/domain/Brain.h
-        src/domain/Block.h
-        src/domain/Sound.cpp
-        src/domain/Sound.h
-        src/domain/SearchParams.h
-        src/domain/BlockConfig.h
-        src/domain/WindowFunction.h
-        src/domain/Fingerprints.h
-        src/domain/Random.h
-        src/domain/constants.h
-        src/domain/port/IAnalyser.h
-        src/domain/port/ISoundFileGateway.h
-        src/domain/port/ISearchStrategy.h
-        src/domain/port/IBlockEffect.h
-        src/domain/port/IAudioOutput.h
+add_library(brainio-core STATIC
+    # Domain
+    src/domain/Brain.cpp
+    src/domain/Sound.cpp
 
-        # Use-case layer
-        src/usecase/SoundProcessor.cpp
-        src/usecase/SoundProcessor.h
-        src/usecase/StreamProcessor.cpp
-        src/usecase/StreamProcessor.h
-        src/usecase/EffectHelpers.cpp
-        src/usecase/EffectHelpers.h
+    # Use-case
+    src/usecase/SoundProcessor.cpp
+    src/usecase/StreamProcessor.cpp
+    src/usecase/EffectHelpers.cpp
 
-        # Adapters (outermost layer)
-        src/adapter/analysis/MfccAnalyser.cpp
-        src/adapter/analysis/MfccAnalyser.h
-        src/adapter/gateway/LibSndFileGateway.cpp
-        src/adapter/gateway/LibSndFileGateway.h
-        src/adapter/search/ClosestSearch.cpp
-        src/adapter/search/ClosestSearch.h
-        src/adapter/search/ReverseSearch.cpp
-        src/adapter/search/ReverseSearch.h
-        src/adapter/search/SynapticSearch.cpp
-        src/adapter/search/SynapticSearch.h
-        src/adapter/search/RandomSearch.cpp
-        src/adapter/search/RandomSearch.h
-        src/adapter/search/WeightedRandomSearch.cpp
-        src/adapter/search/WeightedRandomSearch.h
-        src/adapter/search/MarkovChainSearch.cpp
-        src/adapter/search/MarkovChainSearch.h
-        src/adapter/search/MomentumSearch.cpp
-        src/adapter/search/MomentumSearch.h
-
-        # Effects adapters
-        src/adapter/effects/FftwSpectralMorph.cpp
-        src/adapter/effects/FftwSpectralMorph.h
-
-        # Playback adapters
-        src/adapter/playback/MiniaudioOutput.cpp
-        src/adapter/playback/MiniaudioOutput.h
-
-        # Shared adapter utilities
-        src/adapter/search/SearchUtils.h
-
-        ${AQUILA}
+    # Aquila (Mel filter bank only)
+    ${AQUILA_SOURCES}
 )
 
-# Inject the project root directory so main.cpp can resolve relative paths.
+target_include_directories(brainio-core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+# ── brainio-adapters (platform-specific implementations) ────────────────
+set(ADAPTER_SOURCES
+    # Analysis
+    src/adapter/analysis/MfccAnalyser.cpp
+
+    # Search strategies
+    src/adapter/search/ClosestSearch.cpp
+    src/adapter/search/ReverseSearch.cpp
+    src/adapter/search/SynapticSearch.cpp
+    src/adapter/search/RandomSearch.cpp
+    src/adapter/search/WeightedRandomSearch.cpp
+    src/adapter/search/MarkovChainSearch.cpp
+    src/adapter/search/MomentumSearch.cpp
+)
+
+set(ADAPTER_LIBS brainio-core)
+
+# FFT backends
+if(BRAINIO_USE_POCKETFFT)
+    list(APPEND ADAPTER_SOURCES src/adapter/fft/PocketfftBackend.cpp)
+endif()
+if(BRAINIO_USE_FFTW)
+    list(APPEND ADAPTER_SOURCES src/adapter/fft/FftwBackend.cpp)
+    list(APPEND ADAPTER_LIBS fftw::fftw)
+endif()
+
+# Audio I/O backends
+if(BRAINIO_USE_DRLIBS)
+    list(APPEND ADAPTER_SOURCES
+        src/adapter/gateway/DrLibsGateway.cpp
+        src/adapter/gateway/DrLibsRecorder.cpp)
+endif()
+if(BRAINIO_USE_LIBSNDFILE)
+    list(APPEND ADAPTER_SOURCES
+        src/adapter/gateway/LibSndFileGateway.cpp
+        src/adapter/gateway/LibSndFileRecorder.cpp)
+    list(APPEND ADAPTER_LIBS SndFile::sndfile)
+endif()
+
+# Effects (uses IFft)
+list(APPEND ADAPTER_SOURCES src/adapter/effects/FftwSpectralMorph.cpp)
+
+# Playback
+if(BRAINIO_USE_MINIAUDIO)
+    list(APPEND ADAPTER_SOURCES src/adapter/playback/MiniaudioOutput.cpp)
+    list(APPEND ADAPTER_LIBS miniaudio::miniaudio readerwriterqueue::readerwriterqueue)
+endif()
+
+# WebSocket control
+if(BRAINIO_USE_WEBSOCKET)
+    list(APPEND ADAPTER_SOURCES src/adapter/control/WebSocketParamController.cpp)
+    list(APPEND ADAPTER_LIBS ixwebsocket::ixwebsocket)
+endif()
+
+add_library(brainio-adapters STATIC ${ADAPTER_SOURCES})
+
+target_include_directories(brainio-adapters PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+)
+
+# Compile definitions for conditional compilation
+if(BRAINIO_USE_POCKETFFT)
+    target_compile_definitions(brainio-adapters PUBLIC BRAINIO_HAS_POCKETFFT)
+endif()
+if(BRAINIO_USE_FFTW)
+    target_compile_definitions(brainio-adapters PUBLIC BRAINIO_HAS_FFTW)
+endif()
+if(BRAINIO_USE_DRLIBS)
+    target_compile_definitions(brainio-adapters PUBLIC BRAINIO_HAS_DRLIBS)
+endif()
+if(BRAINIO_USE_LIBSNDFILE)
+    target_compile_definitions(brainio-adapters PUBLIC BRAINIO_HAS_LIBSNDFILE)
+endif()
+if(BRAINIO_USE_MINIAUDIO)
+    target_compile_definitions(brainio-adapters PUBLIC BRAINIO_HAS_MINIAUDIO)
+endif()
+if(BRAINIO_USE_WEBSOCKET)
+    target_compile_definitions(brainio-adapters PUBLIC BRAINIO_HAS_WEBSOCKET)
+endif()
+
+target_link_libraries(brainio-adapters PUBLIC ${ADAPTER_LIBS})
+
+# ── brainio-cli (executable) ───────────────────────────────────────────
+add_executable(brainio src/main.cpp)
+
 target_compile_definitions(brainio PRIVATE PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 
-target_link_libraries(brainio SndFile::sndfile fftw::fftw miniaudio::miniaudio)
+target_link_libraries(brainio PRIVATE brainio-adapters)
 
-# Platform audio frameworks are linked transitively by the miniaudio Conan package.
-# On Linux, pthreads and dl may still be needed:
+# Platform audio frameworks (Linux needs pthreads/dl).
 if(UNIX AND NOT APPLE)
     find_package(Threads REQUIRED)
-    target_link_libraries(brainio Threads::Threads dl m)
+    target_link_libraries(brainio PRIVATE Threads::Threads dl m)
 endif()
 

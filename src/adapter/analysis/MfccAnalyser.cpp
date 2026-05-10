@@ -6,49 +6,36 @@
 #include <stdexcept>
 #include <vector>
 
-#include <fftw3.h>
 #include "../../aquila/filter/MelFilterBank.h"
-#include "../../aquila/transform/Dct.h"
 
 namespace audio::adapter::analysis {
 
-MfccAnalyser::MfccAnalyser(const int num_mfcc, const int num_fft_bins)
-    : num_mfcc_(num_mfcc), num_fft_bins_(num_fft_bins) {}
+MfccAnalyser::MfccAnalyser(std::shared_ptr<port::IFft> fft,
+                           const int num_mfcc, const int num_fft_bins)
+    : fft_(std::move(fft)), num_mfcc_(num_mfcc), num_fft_bins_(num_fft_bins) {}
 
-// ── Internal FFT helper ────────────────────────────────────────────────
+// ── Internal helper: run forward FFT and extract magnitude + Aquila spectrum ──
 
 namespace {
 
-/**
- * Run FFTW real-to-complex and return the complex spectrum plus the
- * magnitude-per-bin array.
- */
 struct FftResult {
     Aquila::SpectrumType spectrum;
     std::vector<double>  magnitude_bins;
     std::size_t          half_n;
 };
 
-FftResult runFft(const std::vector<double>& block) {
-    const auto N = static_cast<int>(block.size());
+FftResult runFft(const port::IFft& fft, const std::vector<double>& block) {
     const auto half = block.size() / 2 + 1;
 
-    std::vector<double> buf(block.begin(), block.end());
-
-    auto* out = static_cast<fftw_complex*>(
-        fftw_malloc(sizeof(fftw_complex) * half));
-    fftw_plan plan = fftw_plan_dft_r2c_1d(N, buf.data(), out, FFTW_ESTIMATE);
-    fftw_execute(plan);
+    auto complex_out = fft.forward(block);
 
     Aquila::SpectrumType spectrum(half);
     std::vector<double> mag(half);
     for (std::size_t k = 0; k < half; ++k) {
-        spectrum[k] = std::complex<double>(out[k][0], out[k][1]);
-        mag[k] = std::sqrt(out[k][0] * out[k][0] + out[k][1] * out[k][1]);
+        spectrum[k] = std::complex<double>(complex_out[k].real, complex_out[k].imag);
+        mag[k] = std::sqrt(complex_out[k].real * complex_out[k].real +
+                           complex_out[k].imag * complex_out[k].imag);
     }
-
-    fftw_destroy_plan(plan);
-    fftw_free(out);
 
     return {std::move(spectrum), std::move(mag), half};
 }
@@ -63,7 +50,7 @@ std::vector<double> MfccAnalyser::compute(const std::vector<double>& block,
         throw std::invalid_argument("MfccAnalyser::compute: block must not be empty");
     }
 
-    auto [spectrum, mag, half] = runFft(block);
+    auto [spectrum, mag, half] = runFft(*fft_, block);
 
     // Mel filter bank → DCT → MFCCs.
     Aquila::MelFilterBank bank(
@@ -71,8 +58,7 @@ std::vector<double> MfccAnalyser::compute(const std::vector<double>& block,
         static_cast<int>(block.size()));
     const std::vector<double> filter_output = bank.applyAll(spectrum);
 
-    Aquila::Dct dct;
-    return dct.dct(filter_output, static_cast<std::size_t>(num_mfcc_));
+    return fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));
 }
 
 // ── Full analysis (primary + secondary + dominant freq) ────────────────
@@ -86,7 +72,7 @@ Fingerprints MfccAnalyser::analyse(const std::vector<double>& block,
     Fingerprints fp;
 
     // Single FFT pass — reused for all three outputs.
-    auto [spectrum, mag, half] = runFft(block);
+    auto [spectrum, mag, half] = runFft(*fft_, block);
 
     // ── Primary: MFCC coefficients ─────────────────────────────────────
     Aquila::MelFilterBank bank(
@@ -94,8 +80,7 @@ Fingerprints MfccAnalyser::analyse(const std::vector<double>& block,
         static_cast<int>(block.size()));
     const std::vector<double> filter_output = bank.applyAll(spectrum);
 
-    Aquila::Dct dct;
-    fp.primary = dct.dct(filter_output, static_cast<std::size_t>(num_mfcc_));
+    fp.primary = fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));
 
     // ── Secondary: FFT magnitude bins ──────────────────────────────────
     const auto target_bins = static_cast<std::size_t>(

@@ -35,22 +35,29 @@ void Brain::addSound(const Sound& sound, const std::string& name) {
 
     const int num_channels = sound.getNumChannels();
 
-    for (std::size_t i = 0; i + bs <= ch0.size(); i += step) {
+    for (std::size_t i = 0; i < ch0.size(); i += step) {
         Block block;
         block.source_name = name;
+
+        // Determine how many samples are available from this position.
+        const auto available = std::min(bs, ch0.size() - i);
 
         // ── Extract mono samples (channel 0) for fingerprinting ────────
         std::vector<double> raw_samples(
             ch0.begin() + static_cast<std::ptrdiff_t>(i),
-            ch0.begin() + static_cast<std::ptrdiff_t>(i + bs));
+            ch0.begin() + static_cast<std::ptrdiff_t>(i + available));
+        // Pad with silence if shorter than block size.
+        raw_samples.resize(bs, 0.0);
 
         // ── Extract multi-channel samples for reconstruction ───────────
         block.channel_samples.resize(num_channels);
         for (int ch = 0; ch < num_channels; ++ch) {
             const auto& src_ch = sound.getChannel(ch);
+            const auto ch_available = std::min(bs, src_ch.size() - i);
             block.channel_samples[ch].assign(
                 src_ch.begin() + static_cast<std::ptrdiff_t>(i),
-                src_ch.begin() + static_cast<std::ptrdiff_t>(i + bs));
+                src_ch.begin() + static_cast<std::ptrdiff_t>(i + ch_available));
+            block.channel_samples[ch].resize(bs, 0.0);
         }
 
         // ── Apply window to raw samples before analysis ────────────────
