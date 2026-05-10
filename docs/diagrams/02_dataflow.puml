@@ -1,0 +1,160 @@
+@startuml brain-io — Data Flow
+
+title brain-io · Data Flow
+
+skinparam backgroundColor #1e1e2e
+skinparam defaultFontName "JetBrains Mono"
+skinparam defaultFontSize 11
+
+skinparam participant {
+    BackgroundColor #313244
+    BorderColor     #89b4fa
+    FontColor       #cdd6f4
+}
+
+skinparam sequence {
+    ArrowColor          #89dceb
+    ArrowFontColor      #a6e3a1
+    ArrowFontSize       10
+    LifeLineBorderColor #6e6e9e
+    LifeLineBackgroundColor #2a2a3e
+    DividerBackgroundColor  #313244
+    DividerBorderColor      #89b4fa
+    DividerFontColor        #cdd6f4
+    GroupBackgroundColor    #1e1e2e
+    GroupBorderColor        #89b4fa
+    GroupFontColor          #cdd6f4
+    BoxBackgroundColor      #2a2a3e
+    BoxBorderColor          #6e6e9e
+    BoxFontColor            #cdd6f4
+}
+
+skinparam note {
+    BackgroundColor #45475a
+    BorderColor     #6c7086
+    FontColor       #cdd6f4
+    FontSize        10
+}
+
+actor "User / CLI" as user
+
+box "Composition Root" #1a1a2e
+    participant "main.cpp" as main
+end box
+
+box "Adapters" #1a2e1a
+    participant "LibSndFileGateway" as gateway
+    participant "MfccAnalyser" as analyser
+end box
+
+box "Domain" #2e1a1a
+    participant "Brain" as brain
+end box
+
+box "Use-Case" #1a1a2e
+    participant "SoundProcessor\n/StreamProcessor" as proc
+    participant "EffectHelpers" as fx
+end box
+
+box "Adapters (output)" #2e2a1a
+    participant "FftwSpectralMorph" as morph
+    participant "MiniaudioOutput" as audio
+end box
+
+== 1. Wiring (Composition Root) ==
+
+user    -> main       : run ./brainio [stream|infinite]
+main    -> main       : create MfccAnalyser, ClosestSearch,\nLibSndFileGateway, MiniaudioOutput,\nFftwSpectralMorph
+main    -> brain      : Brain(analyser, search, source_config)
+
+== 2. Brain ingestion ==
+
+loop for each source .wav
+    main    -> gateway  : loadSound(path)
+    gateway --> main    : Sound (channels[], sr)
+    main    -> brain    : addSound(sound, name)
+    brain   -> brain    : segment into Blocks\n(step = block_size - overlap)
+    loop for each block
+        brain   -> brain    : apply WindowFunction
+        brain   -> analyser : analyse(windowed_block, sr)
+        analyser --> brain  : Fingerprints{primary, secondary,\nnormalised_*, dominant_freq}
+        brain   -> brain    : store Block{samples, fingerprints, synapses=[]}
+    end
+end
+
+note over brain : brain.size() = total blocks\n(all sources combined)
+
+== 3a. Batch mode ==
+
+main    -> gateway  : loadSound(target_path)
+gateway --> main    : Sound target
+main    -> proc     : SoundProcessor.process(brain, target)
+
+loop for each target block b
+    proc    -> analyser : compute(windowed_block, sr)
+    analyser --> proc   : fingerprint fp
+    proc    -> brain    : findBestMatch(fp, params)
+    brain   -> brain    : search->search(fp, blocks, ...)
+    brain   --> proc    : const Block& match
+end
+
+loop for each block b (reconstruction)
+    proc    -> fx       : granularScatter()     [if enabled]
+    proc    -> morph    : apply(prev, curr, amt) [if spectral_morph > 0]
+    proc    -> fx       : applyStutter()         [if stutter_chance > 0]
+    proc    -> fx       : applyEnvelope()        [if envelope_shape > 0]
+    proc    -> proc     : overlap-add + alpha blend with target
+end
+
+proc    --> main    : Sound result
+main    -> gateway  : saveSound(output_path, result)
+
+== 3b. Stream mode (loops forever) ==
+
+main    -> proc     : StreamProcessor.stream(brain, target)
+proc    -> audio    : open(sr, channels, block_size)
+
+loop while running (loops target forever until Ctrl+C)
+    loop for each target block
+        proc    -> analyser : compute(windowed_block, sr)
+        analyser --> proc   : fp
+        proc    -> brain    : findBestMatch(fp, params)
+        brain   --> proc    : const Block& match
+        proc    -> fx       : applyEffects(match.samples)
+        fx      -> morph    : apply(prev, curr, amt)   [if enabled]
+        fx      --> proc    : processed block
+        proc    -> audio    : write(interleaved_samples)
+        note right of audio : ring buffer → miniaudio\ncallback → speakers
+    end
+    note over proc : target exhausted → loop back to start
+end
+
+user    -> main     : Ctrl+C → SIGINT → StreamProcessor.stop()
+proc    -> audio    : close()
+
+== 3c. Infinite mode ==
+
+main    -> proc     : StreamProcessor.streamInfinite(brain, sr)
+proc    -> brain    : jiggle()   [random seed block]
+proc    -> proc     : search_fp ← seed.fingerprint\nfp_scale ← RMS(seed fp)\nforced usage_weight ≥ 0.1
+
+loop until Ctrl+C
+    proc    -> brain    : findBestMatch(search_fp, inf_params)
+    brain   --> proc    : const Block& match
+
+    alt stuck on same block > 3 times
+        proc    -> brain : jiggle() [random reset]
+        proc    -> proc  : search_fp ← new seed fp
+    end
+
+    proc    -> proc     : search_fp ← match_fp\n           + additive drift (15% · fp_scale)
+    proc    -> brain    : depleteUsage(0.995)
+    proc    -> fx       : applyEffects(match.samples)
+    fx      --> proc    : processed block
+    proc    -> audio    : write(block)
+end
+
+user    -> main     : Ctrl+C → SIGINT → StreamProcessor.stop()
+
+@enduml
+
