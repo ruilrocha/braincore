@@ -11,7 +11,7 @@ set(BRAINIO_IO_BACKEND "drlibs" CACHE STRING "Audio I/O backend: drlibs, libsndf
 set_property(CACHE BRAINIO_IO_BACKEND PROPERTY STRINGS "drlibs" "libsndfile" "none")
 
 option(BRAINIO_BUILD_PLAYBACK "Build miniaudio playback adapter" ON)
-option(BRAINIO_BUILD_UI       "Build WebSocket UI layer"         OFF)
+option(BRAINIO_BUILD_UI       "Build WebSocket UI layer"         ON)
 option(BRAINIO_BUILD_CLI      "Build CLI executable"             ON)
 
 # ── Find packages based on options ─────────────────────────────────────

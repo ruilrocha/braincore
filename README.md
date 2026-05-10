@@ -250,6 +250,52 @@ All managed via Conan:
 
 ---
 
+## Troubleshooting
+
+### "UI mode requires BRAINIO_BUILD_UI=ON at build time"
+
+This error means the CMake cache still has the UI disabled. You must **reconfigure CMake** with the option:
+
+```bash
+# Reconfigure with UI enabled
+cmake -S . -B build/build/Release \
+  -DCMAKE_TOOLCHAIN_FILE=build/build/Release/generators/conan_toolchain.cmake \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBRAINIO_BUILD_UI=ON
+
+# Rebuild
+cmake --build build/build/Release
+```
+
+Or use the preset method:
+
+```bash
+cmake --preset conan-release -DBRAINIO_BUILD_UI=ON
+cmake --build build/build/Release
+```
+
+### "Address already in use" (port 7770)
+
+Another instance of the UI mode is still running. Find and kill it:
+
+```bash
+lsof -ti:7770 | xargs kill
+```
+
+Or change the port in `src/adapter/control/WebSocketParamController.cpp`.
+
+### Build errors with ixwebsocket
+
+Make sure you installed dependencies with `--build=missing`:
+
+```bash
+conan install . --output-folder=build --build=missing
+```
+
+The `ixwebsocket` package requires `mbedtls` which must be built from source on some platforms.
+
+---
+
 ## Acknowledgements
 
 This software was inspired by Dave Griffiths' and Aphex Twin's **[Samplebrain](https://thentrythis.org/projects/samplebrain)** project.
