@@ -8,13 +8,13 @@
 
 // dr_libs implementation — define in exactly one translation unit.
 #define DR_WAV_IMPLEMENTATION
-#include "../../../third_party/dr_libs/dr_wav.h"
+#include <dr_wav.h>
 
 #define DR_FLAC_IMPLEMENTATION
-#include "../../../third_party/dr_libs/dr_flac.h"
+#include <dr_flac.h>
 
 #define DR_MP3_IMPLEMENTATION
-#include "../../../third_party/dr_libs/dr_mp3.h"
+#include <dr_mp3.h>
 
 namespace audio::adapter::gateway {
 

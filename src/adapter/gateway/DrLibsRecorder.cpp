@@ -4,7 +4,7 @@
 #include <vector>
 
 // dr_wav is already implemented in DrLibsGateway.cpp — just include the header.
-#include "../../../third_party/dr_libs/dr_wav.h"
+#include <dr_wav.h>
 
 namespace audio::adapter::gateway {
 

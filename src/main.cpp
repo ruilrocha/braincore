@@ -12,7 +12,9 @@
 
 // Adapters (outermost layer)
 #include "adapter/analysis/MfccAnalyser.h"
+#ifdef BRAINIO_HAS_UI
 #include "adapter/control/WebSocketParamController.h"
+#endif
 #include "adapter/effects/FftwSpectralMorph.h"
 #include "adapter/fft/PocketfftBackend.h"
 #include "adapter/gateway/DrLibsGateway.h"
@@ -229,6 +231,7 @@ int main(int argc, char* argv[]) {
     // ════════════════════════════════════════════════════════════════════
     // ── Mode: UI (interactive browser control) ─────────────────────────
     // ════════════════════════════════════════════════════════════════════
+#ifdef BRAINIO_HAS_UI
     if (mode == Mode::Ui) {
         std::cout << "Starting UI mode (Ctrl+C to quit)...\n";
 
@@ -388,6 +391,12 @@ int main(int argc, char* argv[]) {
         std::cout << "\nUI mode stopped.\n";
         return 0;
     }
+#else
+    if (mode == Mode::Ui) {
+        std::cerr << "Error: UI mode requires BRAINIO_BUILD_UI=ON at build time.\n";
+        return 1;
+    }
+#endif
 
     // ════════════════════════════════════════════════════════════════════
     // ── Mode: Infinite landscape ───────────────────────────────────────
@@ -395,9 +404,13 @@ int main(int argc, char* argv[]) {
     if (mode == Mode::Infinite) {
         std::cout << "Starting infinite landscape (Ctrl+C to stop)...\n";
 
-        auto param_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>();
-        param_ctrl->setParams(params);
-        param_ctrl->start();
+        std::shared_ptr<audio::port::IParamController> param_ctrl;
+#ifdef BRAINIO_HAS_UI
+        auto ws_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>();
+        ws_ctrl->setParams(params);
+        ws_ctrl->start();
+        param_ctrl = ws_ctrl;
+#endif
 
         std::shared_ptr<audio::adapter::gateway::DrLibsRecorder> recorder;
         if (!recording_path.empty()) {
@@ -417,7 +430,11 @@ int main(int argc, char* argv[]) {
         g_stream = streamer.get();
 
         streamer->streamInfinite(brain, default_sr, default_ch);
-        param_ctrl->stop();
+#ifdef BRAINIO_HAS_UI
+        if (param_ctrl) {
+            std::dynamic_pointer_cast<audio::adapter::control::WebSocketParamController>(param_ctrl)->stop();
+        }
+#endif
         g_stream = nullptr;
         std::cout << "\nStream stopped.\n";
         return 0;
@@ -439,9 +456,13 @@ int main(int argc, char* argv[]) {
     if (mode == Mode::Stream) {
         std::cout << "Streaming in real-time (Ctrl+C to stop)...\n";
 
-        auto param_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>();
-        param_ctrl->setParams(params);
-        param_ctrl->start();
+        std::shared_ptr<audio::port::IParamController> param_ctrl;
+#ifdef BRAINIO_HAS_UI
+        auto ws_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>();
+        ws_ctrl->setParams(params);
+        ws_ctrl->start();
+        param_ctrl = ws_ctrl;
+#endif
 
         std::shared_ptr<audio::adapter::gateway::DrLibsRecorder> recorder;
         if (!recording_path.empty()) {
@@ -463,7 +484,11 @@ int main(int argc, char* argv[]) {
             std::cerr << "Failed to open audio device.\n";
             return 1;
         }
-        param_ctrl->stop();
+#ifdef BRAINIO_HAS_UI
+        if (param_ctrl) {
+            std::dynamic_pointer_cast<audio::adapter::control::WebSocketParamController>(param_ctrl)->stop();
+        }
+#endif
         g_stream = nullptr;
         std::cout << "Stream finished.\n";
         return 0;

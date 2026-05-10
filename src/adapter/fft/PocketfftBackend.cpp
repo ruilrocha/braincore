@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cstring>
 
-#include "../../../third_party/pocketfft/pocketfft_hdronly.h"
+#include <pocketfft_hdronly.h>
 
 namespace audio::adapter::fft {
 
