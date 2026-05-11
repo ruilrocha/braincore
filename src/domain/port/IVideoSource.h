@@ -46,20 +46,7 @@ public:
                                        double& fps, double& duration_seconds) = 0;
 
     /**
-     * Decode a single video frame at the given timestamp.
-     *
-     * Implementations should cache open file contexts for performance
-     * (repeated calls on the same path should not re-open the file).
-     *
-     * @param path          Path to the video file.
-     * @param time_seconds  Desired presentation time.
-     * @return Decoded frame (RGB24), or nullopt on failure.
-     */
-    [[nodiscard]] virtual std::optional<VideoFrame> readFrame(const std::string& path,
-                                                              double time_seconds) = 0;
-
-    /**
-     * Decode all video frames whose PTS falls in [start_seconds, end_seconds).
+     * Decode video frames whose PTS falls in [start_seconds, end_seconds).
      *
      * The implementation may seek to @p start_seconds if not already positioned
      * there, but avoids seeking when the context is already positioned within a
@@ -68,7 +55,7 @@ public:
      * @param path           Path to the video file.
      * @param start_seconds  Start of the time window (inclusive).
      * @param end_seconds    End of the time window (exclusive).
-     * @return Vector of decoded RGB24 frames (may be empty on EOF/error).
+     * @return Vector of decoded frames (may be empty on EOF/error).
      */
     [[nodiscard]] virtual std::vector<VideoFrame> readSegment(const std::string& path,
                                                               double start_seconds,

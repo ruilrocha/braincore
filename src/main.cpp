@@ -227,19 +227,19 @@ int main(int argc, char* argv[]) {
 
     // ── Block configuration ────────────────────────────────────────────
     audio::BlockConfig source_config{
-        .block_size = 4096, .overlap = 0, .window = audio::WindowShape::Gaussian};
+        .block_size = 4096 * 4, .overlap = 0, .window = audio::WindowShape::Gaussian};
     audio::BlockConfig target_config{
-        .block_size = 4096, .overlap = 0, .window = audio::WindowShape::Gaussian};
+        .block_size = 4096 * 4, .overlap = 0, .window = audio::WindowShape::Gaussian};
 
     // ── Search parameters ──────────────────────────────────────────────
     audio::SearchParams params;
     params.alpha = 1.0;
-    params.stickyness = 0.6;
+    params.stickyness = 0.0;
     params.overlap = 0;
-    params.usage_falloff = 0.8;
-    params.usage_weight = 0.8;
+    params.usage_falloff = 0.0;
+    params.usage_weight = 0.0;
     params.blend_ratio = 1.0;
-    params.n_ratio = 0.7;
+    params.n_ratio = 1.0;
     params.spectral_start = 0;
     params.spectral_end = 100;
     params.momentum = 0.0;
@@ -360,6 +360,8 @@ int main(int argc, char* argv[]) {
         bool playing = false;
         bool recording = false;
         std::shared_ptr<audio::adapter::gateway::DrLibsRecorder> recorder;
+        // Kept alive between startPlayback calls so the main loop can call renderFrameForTime.
+        std::shared_ptr<audio::port::IVideoOutput> current_video_out;
 
         // ── SDL Video display (UI mode only, requires -vout flag) ─────────
         // sdl_display persists for the whole session; a fresh VideoDisplayOutput
@@ -390,14 +392,15 @@ int main(int argc, char* argv[]) {
             params = param_ctrl->getParams();
 
             // Fresh VideoDisplayOutput each start so the decoder thread is alive.
-            std::shared_ptr<audio::port::IVideoOutput> video_out;
             if (sdl_display) {
-                video_out = std::make_shared<audio::adapter::display::VideoDisplayOutput>(
+                current_video_out = std::make_shared<audio::adapter::display::VideoDisplayOutput>(
                     video_source, sdl_display);
+            } else {
+                current_video_out.reset();
             }
             streamer = std::make_unique<audio::usecase::StreamProcessor>(
                 brain, search, params, target_config, audio_output, spectral_morph, param_ctrl,
-                recorder, video_out);
+                recorder, current_video_out);
             g_stream = streamer.get();
             playing = true;
             cfg.playing = true;
@@ -465,6 +468,11 @@ int main(int argc, char* argv[]) {
                         g_quit = true;
                         break;
                     }
+                }
+                // Pull the video frame matching the current audio clock position,
+                // then blit it to screen.  Order matters: update frame first.
+                if (current_video_out) {
+                    current_video_out->renderFrameForTime(audio_output->getAudioTimeSec());
                 }
                 if (!sdl_display->renderLatestFrame()) {
                     g_quit = true;

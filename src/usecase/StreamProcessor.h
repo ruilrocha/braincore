@@ -130,6 +130,12 @@ private:
     std::shared_ptr<port::IRecorder> recorder_;
     mutable std::mutex recorder_mutex_;
 
+    // ── A/V sync state ────────────────────────────────────────────────
+    // Monotonically increasing count of interleaved samples written to
+    // the audio output since streaming began.  Captured before each block
+    // as the `play_cursor` for sample-accurate video sync.
+    std::size_t total_samples_written_ = 0;
+
     std::atomic<bool> running_{false};
 };
 

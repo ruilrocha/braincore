@@ -125,6 +125,7 @@ bool StreamProcessor::stream(const Sound& target) {
     }
 
     running_ = true;
+    total_samples_written_ = 0;
 
     const auto ovl = static_cast<std::size_t>(
         std::max(0, std::min(target_config_.overlap, target_config_.block_size - 1)));
@@ -179,7 +180,10 @@ bool StreamProcessor::stream(const Sound& target) {
 
             if (video_output_) {
                 const double block_dur = static_cast<double>(bs) / static_cast<double>(sample_rate);
-                video_output_->onBlock(match.video, block_dur);
+                const double block_audio_start = static_cast<double>(total_samples_written_)
+                    / static_cast<double>(sample_rate * out_channels.size());
+                total_samples_written_ += bs * out_channels.size();
+                video_output_->onBlock(match.video, block_dur, block_audio_start);
             }
         }
         // Target exhausted — loop back to the beginning.
@@ -216,6 +220,7 @@ void StreamProcessor::streamInfinite(const int sample_rate, const int channels) 
     }
 
     running_ = true;
+    total_samples_written_ = 0;
 
     // Seed with a random block's fingerprint.
     current_block_idx_ = rng::randomIndex(brain_->size());
@@ -301,7 +306,10 @@ void StreamProcessor::streamInfinite(const int sample_rate, const int channels) 
 
         if (video_output_) {
             const double block_dur = static_cast<double>(bs) / static_cast<double>(sample_rate);
-            video_output_->onBlock(match.video, block_dur);
+            const double block_audio_start = static_cast<double>(total_samples_written_)
+                / static_cast<double>(sample_rate * static_cast<int>(num_ch));
+            total_samples_written_ += bs * num_ch;
+            video_output_->onBlock(match.video, block_dur, block_audio_start);
         }
 
         ++step_count;

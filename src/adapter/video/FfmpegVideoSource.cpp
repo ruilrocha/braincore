@@ -91,6 +91,7 @@ struct FfmpegVideoSource::Impl {
             if (st.isVideo()) {
                 ctx->vid_stream = static_cast<ssize_t>(i);
                 ctx->vid_dec = av::VideoDecoderContext(st);
+
                 ctx->vid_dec.open(av::Codec(), ec);
                 if (ec) {
                     ctx->vid_stream = -1;
@@ -248,76 +249,80 @@ bool FfmpegVideoSource::getInfo(const std::string& path, int& width, int& height
     return true;
 }
 
-// ── readFrame ─────────────────────────────────────────────────────────
-
 // ── Shared helpers ────────────────────────────────────────────────────
 
 namespace {
 
-/// Convert an avcpp VideoFrame to a domain VideoFrame (RGB24, scaled to out_w×out_h).
-std::optional<VideoFrame> toRgb(const av::VideoFrame& frame, int out_w, int out_h) {
-    std::error_code ec;
-    av::VideoRescaler rescaler(out_w, out_h, AV_PIX_FMT_RGB24, frame.width(), frame.height(),
-                               static_cast<AVPixelFormat>(frame.pixelFormat().get()));
-    av::VideoFrame rgb = rescaler.rescale(frame, ec);
-    if (ec || !rgb)
+/// Returns true for any AVPixelFormat whose plane layout is identical to
+/// AV_PIX_FMT_YUV420P (3 separate planes, luma full-res, chroma half-res).
+/// YUVJ420P is the "full colour range" variant but has exactly the same memory
+/// layout; SDL and the GPU handle the colour-range difference.
+inline bool isYuv420pCompat(AVPixelFormat fmt) noexcept {
+    return fmt == AV_PIX_FMT_YUV420P || fmt == AV_PIX_FMT_YUVJ420P;
+}
+
+/// Copy a single plane from a possibly-padded AVFrame into a tightly-packed
+/// destination buffer.  When src_stride == width the entire plane is a single
+/// contiguous block and a bulk memcpy is used instead of per-row calls.
+inline void copyPlane(uint8_t* dst, const uint8_t* src, int src_stride,
+                      int width, int height) noexcept {
+    if (src_stride == width) {
+        std::memcpy(dst, src, static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+    } else {
+        for (int row = 0; row < height; ++row) {
+            std::memcpy(dst + row * width, src + row * src_stride,
+                        static_cast<std::size_t>(width));
+        }
+    }
+}
+
+/// Convert a raw AVFrame (YUV420P-family, correct dimensions) into a domain
+/// VideoFrame without rescaling.  Returns nullopt for other formats —
+/// caller must rescale first.
+std::optional<VideoFrame> avframe_to_videoframe(const AVFrame* raw, int out_w, int out_h,
+                                                double pts_sec) {
+    const auto fmt = static_cast<AVPixelFormat>(raw->format);
+    if (!isYuv420pCompat(fmt))
         return std::nullopt;
+
+    const int uv_w = out_w / 2;
+    const int uv_h = out_h / 2;
 
     VideoFrame vf;
     vf.width = out_w;
     vf.height = out_h;
-    vf.timestamp_seconds = frame.pts().seconds();
-    const std::size_t row_bytes = static_cast<std::size_t>(out_w) * 3;
-    vf.pixels.resize(row_bytes * static_cast<std::size_t>(out_h));
-    for (int row = 0; row < out_h; ++row) {
-        std::memcpy(vf.pixels.data() + static_cast<std::size_t>(row) * row_bytes,
-                    rgb.data(0) + row * rgb.raw()->linesize[0], row_bytes);
-    }
+    vf.timestamp_seconds = pts_sec;
+
+    auto yuv = Yuv420pData::make(out_w, out_h);
+    copyPlane(yuv.y.data.data(), raw->data[0], raw->linesize[0], out_w, out_h);
+    copyPlane(yuv.u.data.data(), raw->data[1], raw->linesize[1], uv_w, uv_h);
+    copyPlane(yuv.v.data.data(), raw->data[2], raw->linesize[2], uv_w, uv_h);
+    vf.pixels = std::move(yuv);
     return vf;
 }
 
-}  // anonymous namespace
+/// Convert an avcpp VideoFrame into a domain VideoFrame (always YUV420P output).
+///
+/// Fast path: YUV420P / YUVJ420P at correct dimensions → bulk memcpy.
+/// Fallback:  VideoRescaler (sws_scale) → YUV420P for any other format.
+std::optional<VideoFrame> toVideoFrame(const av::VideoFrame& frame, int out_w, int out_h) {
+    const auto fmt = static_cast<AVPixelFormat>(frame.pixelFormat().get());
 
-// ── readFrame ─────────────────────────────────────────────────────────
+    // Fast path: no conversion needed.
+    if (isYuv420pCompat(fmt) && frame.width() == out_w && frame.height() == out_h)
+        return avframe_to_videoframe(frame.raw(), out_w, out_h, frame.pts().seconds());
 
-std::optional<VideoFrame> FfmpegVideoSource::readFrame(const std::string& path,
-                                                       const double time_seconds) {
-    auto ctx = pimpl_->acquire(path);
-    if (!ctx || ctx->vid_stream < 0)
-        return std::nullopt;
-
+    // Fallback: sws_scale to YUV420P.
     std::error_code ec;
-    const av::Timestamp ts{static_cast<int64_t>(time_seconds * av::TimeBase),
-                           av::Rational{1, av::TimeBase}};
-    ctx->fmt_ctx.seek(ts, ec);
-    if (ec)
+    av::VideoRescaler rescaler(out_w, out_h, AV_PIX_FMT_YUV420P, frame.width(), frame.height(),
+                               fmt);
+    av::VideoFrame yuv = rescaler.rescale(frame, ec);
+    if (ec || !yuv)
         return std::nullopt;
-    avcodec_flush_buffers(ctx->vid_dec.raw());
-    ctx->current_pts = -1.0;
-
-    const double frame_dur = ctx->fps > 0.0 ? 1.0 / ctx->fps : 1.0 / 30.0;
-
-    while (true) {
-        auto pkt = ctx->fmt_ctx.readPacket(ec);
-        if (ec || !pkt)
-            break;
-        if (pkt.streamIndex() != static_cast<std::size_t>(ctx->vid_stream))
-            continue;
-
-        av::VideoFrame frame = ctx->vid_dec.decode(pkt, ec);
-        if (ec || !frame) {
-            ec.clear();
-            continue;
-        }
-
-        if (frame.pts().seconds() + frame_dur <= time_seconds)
-            continue;
-
-        ctx->current_pts = frame.pts().seconds() + frame_dur;
-        return toRgb(frame, ctx->width, ctx->height);
-    }
-    return std::nullopt;
+    return avframe_to_videoframe(yuv.raw(), out_w, out_h, frame.pts().seconds());
 }
+
+}  // anonymous namespace
 
 // ── readSegment ───────────────────────────────────────────────────────
 
@@ -394,7 +399,6 @@ std::vector<VideoFrame> FfmpegVideoSource::readSegment(const std::string& path,
         const double pts = frame.pts().seconds();
 
         // Skip frames that end before the window starts (pre-roll drain after seek).
-        // Include the frame that CONTAINS start_seconds so video aligns with audio.
         if (pts + frame_dur <= start_seconds) {
             ctx->current_pts = pts + frame_dur;
             continue;
@@ -402,7 +406,7 @@ std::vector<VideoFrame> FfmpegVideoSource::readSegment(const std::string& path,
 
         // Past end of window: buffer for the next call and stop.
         if (pts >= end_seconds) {
-            if (auto vf = toRgb(frame, ctx->width, ctx->height)) {
+            if (auto vf = toVideoFrame(frame, ctx->width, ctx->height)) {
                 vf->timestamp_seconds = pts;
                 ctx->buffered_vf = std::move(*vf);
             }
@@ -411,7 +415,7 @@ std::vector<VideoFrame> FfmpegVideoSource::readSegment(const std::string& path,
         }
 
         ctx->current_pts = pts + frame_dur;
-        if (auto vf = toRgb(frame, ctx->width, ctx->height)) {
+        if (auto vf = toVideoFrame(frame, ctx->width, ctx->height)) {
             vf->timestamp_seconds = pts;
             result.push_back(std::move(*vf));
         }

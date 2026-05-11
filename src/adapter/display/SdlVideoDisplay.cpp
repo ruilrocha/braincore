@@ -33,11 +33,16 @@ SdlVideoDisplay::SdlVideoDisplay(int width, int height) : width_(width), height_
         return;
     }
 
+    // VSync: let the display driver pace SDL_RenderPresent to the screen
+    // refresh rate so frame timing is smooth and GPU usage is low.
+    SDL_SetRenderVSync(renderer_, 1);
+
     // Preserve source aspect ratio (letterbox / pillarbox) on window resize.
     SDL_SetRenderLogicalPresentation(renderer_, width_, height_,
                                      SDL_LOGICAL_PRESENTATION_LETTERBOX);
 
-    texture_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING,
+    texture_format_ = static_cast<int>(SDL_PIXELFORMAT_IYUV);
+    texture_ = SDL_CreateTexture(renderer_, static_cast<SDL_PixelFormat>(texture_format_), SDL_TEXTUREACCESS_STREAMING,
                                  width_, height_);
     if (texture_ == nullptr) {
         std::cerr << std::format("SDL_CreateTexture error: {}\n", SDL_GetError());
@@ -85,22 +90,37 @@ bool SdlVideoDisplay::renderLatestFrame() {
     }
 
     if (frame && !frame->empty()) {
-        // Recreate texture if frame dimensions changed.
-        if (frame->width != width_ || frame->height != height_) {
+        // Map the active pixel format to an SDL format constant.
+        const uint32_t sdl_fmt = std::visit(
+            [](const auto& d) -> int {
+                using T = std::decay_t<decltype(d)>;
+                if constexpr (std::is_same_v<T, Yuv420pData>) return static_cast<int>(SDL_PIXELFORMAT_IYUV);
+                if constexpr (std::is_same_v<T, Rgb24Data>)   return static_cast<int>(SDL_PIXELFORMAT_RGB24);
+            },
+            frame->pixels);
+
+        // Recreate texture if dimensions or pixel format changed.
+        if (frame->width != width_ || frame->height != height_ || sdl_fmt != texture_format_) {
             SDL_DestroyTexture(texture_);
             width_ = frame->width;
             height_ = frame->height;
+            texture_format_ = sdl_fmt;
             SDL_SetRenderLogicalPresentation(renderer_, width_, height_,
                                              SDL_LOGICAL_PRESENTATION_LETTERBOX);
-            texture_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGB24,
+            texture_ = SDL_CreateTexture(renderer_, static_cast<SDL_PixelFormat>(texture_format_),
                                          SDL_TEXTUREACCESS_STREAMING, width_, height_);
             if (texture_ == nullptr) {
                 return false;
             }
         }
 
-        SDL_UpdateTexture(texture_, nullptr, frame->pixels.data(),
-                          frame->width * 3);  // pitch = width * 3 (RGB24)
+        if (const auto* yuv = std::get_if<Yuv420pData>(&frame->pixels)) {
+            SDL_UpdateYUVTexture(texture_, nullptr, yuv->y.data.data(), yuv->y.stride,
+                                 yuv->u.data.data(), yuv->u.stride, yuv->v.data.data(),
+                                 yuv->v.stride);
+        } else if (const auto* rgb = std::get_if<Rgb24Data>(&frame->pixels)) {
+            SDL_UpdateTexture(texture_, nullptr, rgb->rgb.data.data(), rgb->rgb.stride);
+        }
         SDL_RenderClear(renderer_);
         SDL_RenderTexture(renderer_, texture_, nullptr, nullptr);
         SDL_RenderPresent(renderer_);

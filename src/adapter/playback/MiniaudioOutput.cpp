@@ -38,13 +38,16 @@ bool MiniaudioOutput::open(const int sample_rate, const int channels, const int 
         close();
     }
 
-    channels_ = channels;
+    channels_     = channels;
+    sample_rate_  = sample_rate;
 
-    // Ring buffer capacity: ~1 second of audio.
-    const auto bs = static_cast<std::size_t>(buffer_size);
-    const auto ch = static_cast<std::size_t>(channels);
-    const auto sr = static_cast<std::size_t>(sample_rate);
-    const auto capacity = std::max(bs * ch * 8, sr * ch);
+    // Ring buffer: at most 2 seconds of audio so the audio thread doesn't race
+    // more than ~2 seconds ahead of the hardware output.  This keeps the
+    // block_audio_start_sec timestamps passed to the video output meaningful.
+    const auto ch  = static_cast<std::size_t>(channels);
+    const auto sr  = static_cast<std::size_t>(sample_rate);
+    const auto bs  = static_cast<std::size_t>(buffer_size);
+    const auto capacity = std::min(std::max(bs * ch * 2, sr * ch / 2), sr * ch * 2);
     ring_ = std::make_unique<moodycamel::ReaderWriterQueue<float>>(capacity);
 
     impl_ = new Impl{};
@@ -139,8 +142,35 @@ void MiniaudioOutput::fillBuffer(float* output, const std::size_t frame_count) {
         }
     }
 
+    samples_consumed_.fetch_add(total, std::memory_order_relaxed);
+
     // Wake the producer if it was sleeping on a full buffer.
     ring_not_full_.notify_one();
+}
+
+std::size_t MiniaudioOutput::samplesConsumed() const {
+    return samples_consumed_.load(std::memory_order_relaxed);
+}
+
+double MiniaudioOutput::getAudioTimeSec() const {
+    if (!open_ || impl_ == nullptr || channels_ == 0 || sample_rate_ == 0) {
+        return 0.0;
+    }
+    // Frames (non-interleaved) consumed by the hardware driver so far.
+    const double frames_consumed =
+        static_cast<double>(samples_consumed_.load(std::memory_order_relaxed)) /
+        static_cast<double>(channels_);
+    const double time_consumed = frames_consumed / static_cast<double>(sample_rate_);
+
+    // Subtract one hardware period: samples currently in the driver output buffer,
+    // not yet converted to physical sound.
+    const ma_uint32 hw_period = impl_->device.playback.internalPeriodSizeInFrames;
+    const ma_uint32 hw_sr     = impl_->device.playback.internalSampleRate > 0
+                                    ? impl_->device.playback.internalSampleRate
+                                    : static_cast<ma_uint32>(sample_rate_);
+    const double hw_latency_sec = static_cast<double>(hw_period) / static_cast<double>(hw_sr);
+
+    return std::max(0.0, time_consumed - hw_latency_sec);
 }
 
 }  // namespace audio::adapter::playback

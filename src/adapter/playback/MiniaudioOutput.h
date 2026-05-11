@@ -31,6 +31,8 @@ public:
     void write(const std::vector<double>& samples) override;
     void close() override;
     [[nodiscard]] bool isOpen() const override;
+    [[nodiscard]] std::size_t samplesConsumed() const override;
+    [[nodiscard]] double getAudioTimeSec() const override;
 
     /// Called by the miniaudio callback — do not call directly.
     void fillBuffer(float* output, std::size_t frame_count);
@@ -39,15 +41,14 @@ private:
     struct Impl;
     Impl* impl_ = nullptr;
 
-    // Lock-free SPSC ring buffer of float samples (interleaved).
     std::unique_ptr<moodycamel::ReaderWriterQueue<float>> ring_;
-
-    // Condition variable for producer back-pressure.
     std::mutex wait_mutex_;
     std::condition_variable ring_not_full_;
 
-    int channels_ = 0;
-    std::atomic<bool> open_{false};
+    int channels_    = 0;
+    int sample_rate_ = 0;
+    std::atomic<bool>        open_{false};
+    std::atomic<std::size_t> samples_consumed_{0};
 };
 
 }  // namespace audio::adapter::playback
