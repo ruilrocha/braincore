@@ -14,6 +14,7 @@ namespace audio {
 enum class PixelFormat : std::uint8_t {
     YUV420P,  ///< Planar YUV 4:2:0 — Y full-res, U/V half-res each axis.
     RGB24,    ///< Interleaved RGB, 8-bit per channel, 3 bytes per pixel.
+    NV12,     ///< Semi-planar YUV 4:2:0 — Y full-res, interleaved UV half-res.
 };
 
 }  // namespace audio

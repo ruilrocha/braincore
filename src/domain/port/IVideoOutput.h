@@ -31,8 +31,7 @@ public:
      *                             Computed as total_interleaved_samples_written_before_block
      *                             / (sample_rate * channels).  Pass 0.0 if unavailable.
      */
-    virtual void onBlock(const std::optional<VideoSegment>& segment,
-                         double duration_sec,
+    virtual void onBlock(const std::optional<VideoSegment>& segment, double duration_sec,
                          double block_audio_start_sec = 0.0) = 0;
 
     /**

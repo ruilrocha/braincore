@@ -180,8 +180,9 @@ bool StreamProcessor::stream(const Sound& target) {
 
             if (video_output_) {
                 const double block_dur = static_cast<double>(bs) / static_cast<double>(sample_rate);
-                const double block_audio_start = static_cast<double>(total_samples_written_)
-                    / static_cast<double>(sample_rate * out_channels.size());
+                const double block_audio_start =
+                    static_cast<double>(total_samples_written_) /
+                    static_cast<double>(sample_rate * out_channels.size());
                 total_samples_written_ += bs * out_channels.size();
                 video_output_->onBlock(match.video, block_dur, block_audio_start);
             }
@@ -306,8 +307,9 @@ void StreamProcessor::streamInfinite(const int sample_rate, const int channels) 
 
         if (video_output_) {
             const double block_dur = static_cast<double>(bs) / static_cast<double>(sample_rate);
-            const double block_audio_start = static_cast<double>(total_samples_written_)
-                / static_cast<double>(sample_rate * static_cast<int>(num_ch));
+            const double block_audio_start =
+                static_cast<double>(total_samples_written_) /
+                static_cast<double>(sample_rate * static_cast<int>(num_ch));
             total_samples_written_ += bs * num_ch;
             video_output_->onBlock(match.video, block_dur, block_audio_start);
         }

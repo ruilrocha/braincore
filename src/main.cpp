@@ -227,9 +227,9 @@ int main(int argc, char* argv[]) {
 
     // ── Block configuration ────────────────────────────────────────────
     audio::BlockConfig source_config{
-        .block_size = 4096 * 4, .overlap = 0, .window = audio::WindowShape::Gaussian};
+        .block_size = 4096, .overlap = 0, .window = audio::WindowShape::Gaussian};
     audio::BlockConfig target_config{
-        .block_size = 4096 * 4, .overlap = 0, .window = audio::WindowShape::Gaussian};
+        .block_size = 4096, .overlap = 0, .window = audio::WindowShape::Gaussian};
 
     // ── Search parameters ──────────────────────────────────────────────
     audio::SearchParams params;
@@ -266,20 +266,20 @@ int main(int argc, char* argv[]) {
     // ── Helper: load sounds into brain ─────────────────────────────────
     auto loadBrain = [&]() -> std::shared_ptr<audio::Brain> {
         auto brain = std::make_shared<audio::Brain>(analyser, source_config);
-        for (const auto& src : brain_sources) {
-            const std::string full_path = resolvePath(src.path);
+        for (const auto& [path, is_video] : brain_sources) {
+            const std::string full_path = resolvePath(path);
 
-            if (src.is_video) {
+            if (is_video) {
                 auto sound = video_source->loadAudio(full_path);
                 if (!sound) {
                     std::cerr << std::format("Failed to extract audio from video: {}\n", full_path);
                     continue;
                 }
-                std::cout << std::format("Video source '{}': {} ch, {} samples, {} Hz\n", src.path,
+                std::cout << std::format("Video source '{}': {} ch, {} samples, {} Hz\n", path,
                                          sound->getNumChannels(), sound->getNumSamples(),
                                          sound->getSampleRate());
                 brain->addSound(
-                    *sound, src.path,
+                    *sound, path,
                     audio::VideoMetadata{.path = full_path, .start_offset_seconds = 0.0});
                 continue;
             }
@@ -289,10 +289,10 @@ int main(int argc, char* argv[]) {
                 std::cerr << std::format("Failed to load brain sound: {}\n", full_path);
                 continue;
             }
-            std::cout << std::format("Brain source '{}': {} ch, {} samples, {} Hz\n", src.path,
+            std::cout << std::format("Brain source '{}': {} ch, {} samples, {} Hz\n", path,
                                      sound->getNumChannels(), sound->getNumSamples(),
                                      sound->getSampleRate());
-            brain->addSound(*sound, src.path);
+            brain->addSound(*sound, path);
         }
         return brain;
     };
@@ -378,7 +378,7 @@ int main(int argc, char* argv[]) {
                 it != brain_sources.end()) {
                 double vdur = 0.0;
                 std::ignore = video_source->getInfo(resolvePath(it->path), vw, vh, vfps, vdur);
-                }
+            }
             std::cout << std::format("Video display: {}x{} @ {:.1f}fps\n", vw, vh, vfps);
             sdl_display = std::make_shared<audio::adapter::display::SdlVideoDisplay>(vw, vh);
             g_display = sdl_display.get();
@@ -609,11 +609,11 @@ int main(int argc, char* argv[]) {
             if (const std::string rec_full = resolvePath(recording_path);
                 recorder->open(rec_full, default_sr, default_ch)) {
                 std::cout << std::format("Recording to {}\n", rec_full);
-                } else {
-                    std::cerr << std::format("Failed to open recording file: {}\n",
-                                             resolvePath(recording_path));
-                    recorder.reset();
-                }
+            } else {
+                std::cerr << std::format("Failed to open recording file: {}\n",
+                                         resolvePath(recording_path));
+                recorder.reset();
+            }
         }
 
         auto streamer = std::make_unique<audio::usecase::StreamProcessor>(

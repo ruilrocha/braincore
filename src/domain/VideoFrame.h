@@ -24,7 +24,6 @@ struct Plane {
  *   v : Cr,    half resolution  (width/2 x height/2)
  */
 struct Yuv420pData {
-
     Plane y, u, v;
 
     static Yuv420pData make(int width, int height) {
@@ -46,6 +45,29 @@ struct Yuv420pData {
         d.y.data.assign(d.y.data.size(), 16);
         d.u.data.assign(d.u.data.size(), 128);
         d.v.data.assign(d.v.data.size(), 128);
+        return d;
+    }
+};
+
+/**
+ * Semi-planar YUV 4:2:0 (NV12).
+ *   y  : luma,             full resolution (width × height bytes)
+ *   uv : interleaved Cb+Cr, half-height    (width × height/2 bytes)
+ *
+ * Produced directly by VideoToolbox hardware decode on macOS/iOS — using
+ * this format avoids the sws_scale CPU conversion to YUV420P.
+ * SDL3 renders NV12 natively via SDL_UpdateNVTexture / SDL_PIXELFORMAT_NV12.
+ */
+struct Nv12Data {
+    Plane y;   ///< Luma plane  — width × height bytes.
+    Plane uv;  ///< Interleaved chroma plane — width × (height/2) bytes.
+
+    static Nv12Data make(int width, int height) {
+        Nv12Data d;
+        d.y.stride = width;
+        d.y.data.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+        d.uv.stride = width;  ///< UV row is full width (interleaved pairs).
+        d.uv.data.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height / 2));
         return d;
     }
 };
@@ -78,7 +100,7 @@ struct Rgb24Data {
  *   if (auto* yuv = std::get_if<Yuv420pData>(&frame.pixels)) { ... }
  */
 struct VideoFrame {
-    using Pixels = std::variant<Yuv420pData, Rgb24Data>;
+    using Pixels = std::variant<Yuv420pData, Rgb24Data, Nv12Data>;
 
     int width = 0;
     int height = 0;
@@ -86,20 +108,32 @@ struct VideoFrame {
     double timestamp_seconds = 0.0;
 
     [[nodiscard]] bool empty() const {
-        return std::visit([](const auto& d) {
-            using T = std::decay_t<decltype(d)>;
-            if constexpr (std::is_same_v<T, Yuv420pData>) return d.y.data.empty();
-            if constexpr (std::is_same_v<T, Rgb24Data>)   return d.rgb.data.empty();
-        }, pixels);
+        return std::visit(
+            [](const auto& d) {
+                using T = std::decay_t<decltype(d)>;
+                if constexpr (std::is_same_v<T, Yuv420pData>)
+                    return d.y.data.empty();
+                if constexpr (std::is_same_v<T, Rgb24Data>)
+                    return d.rgb.data.empty();
+                if constexpr (std::is_same_v<T, Nv12Data>)
+                    return d.y.data.empty();
+            },
+            pixels);
     }
 
     /// Convenience: return the runtime PixelFormat of the active variant arm.
     [[nodiscard]] PixelFormat format() const {
-        return std::visit([](const auto& d) -> PixelFormat {
-            using T = std::decay_t<decltype(d)>;
-            if constexpr (std::is_same_v<T, Yuv420pData>) return PixelFormat::YUV420P;
-            if constexpr (std::is_same_v<T, Rgb24Data>)   return PixelFormat::RGB24;
-        }, pixels);
+        return std::visit(
+            [](const auto& d) -> PixelFormat {
+                using T = std::decay_t<decltype(d)>;
+                if constexpr (std::is_same_v<T, Yuv420pData>)
+                    return PixelFormat::YUV420P;
+                if constexpr (std::is_same_v<T, Rgb24Data>)
+                    return PixelFormat::RGB24;
+                if constexpr (std::is_same_v<T, Nv12Data>)
+                    return PixelFormat::NV12;
+            },
+            pixels);
     }
 
     static VideoFrame black(int width, int height) {

@@ -46,7 +46,7 @@ namespace audio::adapter::display {
  */
 class VideoDisplayOutput final : public port::IVideoOutput {
 public:
-    VideoDisplayOutput(std::shared_ptr<port::IVideoSource>  source,
+    VideoDisplayOutput(std::shared_ptr<port::IVideoSource> source,
                        std::shared_ptr<port::IVideoDisplay> display);
     ~VideoDisplayOutput() override;
 
@@ -56,8 +56,7 @@ public:
     // ── IVideoOutput ────────────────────────────────────────────────────
 
     /// Non-blocking: enqueues the segment for background decoding.
-    void onBlock(const std::optional<VideoSegment>& segment,
-                 double duration_sec,
+    void onBlock(const std::optional<VideoSegment>& segment, double duration_sec,
                  double block_audio_start_sec = 0.0) override;
 
     /**
@@ -75,20 +74,20 @@ public:
 private:
     struct BlockCmd {
         std::optional<VideoSegment> segment;
-        double duration_sec          = 0.0;
+        double duration_sec = 0.0;
         double block_audio_start_sec = 0.0;
     };
 
     /// A decoded video frame annotated with its audio presentation window.
     struct TimedFrame {
-        double     audio_start = 0.0;  ///< Seconds: start of presentation window.
-        double     audio_end   = 0.0;  ///< Seconds: end   of presentation window.
+        double audio_start = 0.0;  ///< Seconds: start of presentation window.
+        double audio_end = 0.0;    ///< Seconds: end   of presentation window.
         VideoFrame frame;
     };
 
     void decoderLoop();
 
-    std::shared_ptr<port::IVideoSource>  source_;
+    std::shared_ptr<port::IVideoSource> source_;
     std::shared_ptr<port::IVideoDisplay> display_;
 
     /// SPSC queue from Thread A → Thread B.
@@ -96,7 +95,7 @@ private:
 
     /// Pre-decoded frames sorted by audio_start (Thread B writes, Thread C reads).
     std::deque<TimedFrame> timed_frames_;
-    std::mutex             frames_mutex_;
+    std::mutex frames_mutex_;
 
     /// Last frame successfully shown — repeated when no current frame is available.
     std::optional<VideoFrame> last_shown_frame_;
@@ -104,7 +103,7 @@ private:
     // Maximum number of decoded frames to keep buffered ahead.
     static constexpr std::size_t kMaxBufferedFrames = 512;
 
-    std::thread       decoder_thread_;
+    std::thread decoder_thread_;
     std::atomic<bool> running_{true};
 };
 

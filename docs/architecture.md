@@ -27,12 +27,13 @@ port interfaces.
     │  MomentumSearch  │                   │   IAnalyser   │
     │  FfmpegVideoSrc  │                   │   ISearchStrat│
     │  FfmpegVideoOut  │                   │   ISoundFileGW│
-    │  WebSocketParam  │                   │   IAudioOutput│
-    └──────────────────┘                   │   IBlockEffect│
-                                           │   IParamCtrl  │
-                                           │   IRecorder   │
+    │  SdlVideoDisplay │                   │   IAudioOutput│
+    │  VideoDisplayOut │                   │   IBlockEffect│
+    │  WebSocketParam  │                   │   IParamCtrl  │
+    └──────────────────┘                   │   IRecorder   │
                                            │   IVideoSource│
                                            │   IVideoOutput│
+                                           │   IVideoDisplay│
                                            │   IFft        │
                                            └───────────────┘
 ```
@@ -78,7 +79,8 @@ Domain  ←──  Use-Cases  ←──  Adapters  ←──  main.cpp
 | `brainio-io` | DrLibsGateway, DrLibsRecorder | dr_libs (header-only) |
 | `brainio-playback` | MiniaudioOutput | miniaudio, readerwriterqueue |
 | `brainio-ui` | WebSocketParamController | ixwebsocket |
-| `brainio-video` | FfmpegVideoSource, FfmpegVideoOutput | avcpp, FFmpeg |
+| `brainio-video` | FfmpegVideoSource, FfmpegVideoOutput | avcpp, FFmpeg (VideoToolbox HW decode on macOS) |
+| `brainio-display` | SdlVideoDisplay, VideoDisplayOutput | SDL3 |
 | `brainio` | CLI executable | all of the above |
 
 ## Data Flow
@@ -131,6 +133,41 @@ for real-time playback. Parameters can be tweaked live via WebSocket.
 | `IRecorder` | Incremental WAV recording |
 | `IVideoSource` | Video file reading: audio extraction, metadata, time-windowed frame decode |
 | `IVideoOutput` | Video frame writing: per-block callback + finalise |
+| `IVideoDisplay` | Real-time video frame display (SDL3; renders NV12/YUV420P/RGB24 natively) |
+
+## Real-Time Audio / Video Design
+
+### Audio Output (MiniaudioOutput)
+
+- **Lock-free SPSC ring buffer** (4 seconds) between the StreamProcessor (producer) and the
+  miniaudio callback (consumer). No mutex on the callback path.
+- **Never-drop producer**: `write()` retries unconditionally if the ring is full, waiting on a
+  condition variable notified by `fillBuffer()`. Dropping even one sample causes an audible hole.
+- **Denormal flushing**: set once per audio thread via ARM64 `FPCR.FZ` or x86 `FTZ|DAZ` bits
+  to prevent 10–100× FPU slowdowns from near-zero values in crossfade/MFCC computations.
+- **Wall-clock interpolation**: `getAudioTimeSec()` extrapolates linearly from the last callback's
+  sample count + wall timestamp, providing sub-millisecond accuracy between hardware callbacks
+  (~85 ms on macOS) for smooth A/V sync.
+
+### Video Decode (FfmpegVideoSource)
+
+- **VideoToolbox hardware decode** (macOS, H264/HEVC): `avcodec_find_decoder_by_name("h264_videotoolbox")`
+  offloads decode to the Apple media engine at near-zero CPU cost. Automatic fallback to
+  single-threaded software decode if the codec is unsupported.
+- **NV12 fast path**: VideoToolbox produces `AV_PIX_FMT_NV12` frames. `av_hwframe_transfer_data`
+  copies them from GPU to CPU memory as NV12 directly into `Nv12Data` domain structs — no
+  `sws_scale` conversion. SDL3 renders NV12 natively via `SDL_UpdateNVTexture`, keeping the
+  GPU fragment shader responsible for YUV→RGB.
+- **YUV420P fast path**: software frames in `AV_PIX_FMT_YUV420P` / `YUVJ420P` are bulk-copied
+  into `Yuv420pData` without rescaling. Only unexpected formats fall back to `sws_scale`.
+
+### VideoFrame Pixel Formats
+
+| `VideoFrame::Pixels` variant | SDL texture type | Source |
+|------------------------------|-----------------|--------|
+| `Yuv420pData` | `SDL_PIXELFORMAT_IYUV` / `SDL_UpdateYUVTexture` | SW decode |
+| `Nv12Data`    | `SDL_PIXELFORMAT_NV12` / `SDL_UpdateNVTexture`  | VideoToolbox HW decode |
+| `Rgb24Data`   | `SDL_PIXELFORMAT_RGB24` / `SDL_UpdateTexture`   | Legacy/fallback |
 
 ## Runtime Search Strategy Swap
 

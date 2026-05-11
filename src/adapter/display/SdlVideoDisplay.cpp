@@ -41,9 +41,9 @@ SdlVideoDisplay::SdlVideoDisplay(int width, int height) : width_(width), height_
     SDL_SetRenderLogicalPresentation(renderer_, width_, height_,
                                      SDL_LOGICAL_PRESENTATION_LETTERBOX);
 
-    texture_format_ = static_cast<int>(SDL_PIXELFORMAT_IYUV);
-    texture_ = SDL_CreateTexture(renderer_, static_cast<SDL_PixelFormat>(texture_format_), SDL_TEXTUREACCESS_STREAMING,
-                                 width_, height_);
+    texture_format_ = SDL_PIXELFORMAT_IYUV;
+    texture_ = SDL_CreateTexture(renderer_, static_cast<SDL_PixelFormat>(texture_format_),
+                                 SDL_TEXTUREACCESS_STREAMING, width_, height_);
     if (texture_ == nullptr) {
         std::cerr << std::format("SDL_CreateTexture error: {}\n", SDL_GetError());
         SDL_DestroyRenderer(renderer_);
@@ -92,10 +92,17 @@ bool SdlVideoDisplay::renderLatestFrame() {
     if (frame && !frame->empty()) {
         // Map the active pixel format to an SDL format constant.
         const uint32_t sdl_fmt = std::visit(
-            [](const auto& d) -> int {
-                using T = std::decay_t<decltype(d)>;
-                if constexpr (std::is_same_v<T, Yuv420pData>) return static_cast<int>(SDL_PIXELFORMAT_IYUV);
-                if constexpr (std::is_same_v<T, Rgb24Data>)   return static_cast<int>(SDL_PIXELFORMAT_RGB24);
+            [](const auto& px) -> uint32_t {
+                using T = std::decay_t<decltype(px)>;
+                if constexpr (std::is_same_v<T, Yuv420pData>) {
+                    return SDL_PIXELFORMAT_IYUV;
+                }
+                if constexpr (std::is_same_v<T, Rgb24Data>) {
+                    return SDL_PIXELFORMAT_RGB24;
+                }
+                if constexpr (std::is_same_v<T, Nv12Data>) {
+                    return SDL_PIXELFORMAT_NV12;
+                }
             },
             frame->pixels);
 
@@ -118,6 +125,11 @@ bool SdlVideoDisplay::renderLatestFrame() {
             SDL_UpdateYUVTexture(texture_, nullptr, yuv->y.data.data(), yuv->y.stride,
                                  yuv->u.data.data(), yuv->u.stride, yuv->v.data.data(),
                                  yuv->v.stride);
+        } else if (const auto* nv12 = std::get_if<Nv12Data>(&frame->pixels)) {
+            // NV12: two planes — Y (luma) + UV (interleaved chroma).
+            // SDL3 renders this natively so the GPU handles YUV→RGB.
+            SDL_UpdateNVTexture(texture_, nullptr, nv12->y.data.data(), nv12->y.stride,
+                                nv12->uv.data.data(), nv12->uv.stride);
         } else if (const auto* rgb = std::get_if<Rgb24Data>(&frame->pixels)) {
             SDL_UpdateTexture(texture_, nullptr, rgb->rgb.data.data(), rgb->rgb.stride);
         }

@@ -12,7 +12,7 @@ SynapseGraph buildSynapseGraph(const Brain& brain, const std::size_t num_synapse
     const auto& blocks = brain.blocks();
     const auto& analyser = brain.analyser();
     const std::size_t num_blocks = blocks.size();
-    const std::size_t k = std::min(num_synapses, num_blocks > 0 ? num_blocks - 1 : 0);
+    const std::size_t k_synapses = std::min(num_synapses, num_blocks > 0 ? num_blocks - 1 : 0);
 
     SynapseGraph graph;
     graph.neighbours.resize(num_blocks);
@@ -29,12 +29,12 @@ SynapseGraph buildSynapseGraph(const Brain& brain, const std::size_t num_synapse
             scored.emplace_back(j, dist);
         }
 
-        std::ranges::partial_sort(scored, scored.begin() + static_cast<std::ptrdiff_t>(k),
+        std::ranges::partial_sort(scored, scored.begin() + static_cast<std::ptrdiff_t>(k_synapses),
                                   [](const auto& a, const auto& b) { return a.second < b.second; });
 
-        graph.neighbours[i].resize(k);
-        for (std::size_t s = 0; s < k; ++s) {
-            graph.neighbours[i][s] = scored[s].first;
+        graph.neighbours[i].resize(k_synapses);
+        for (std::size_t synapse_idx = 0; synapse_idx < k_synapses; ++synapse_idx) {
+            graph.neighbours[i][synapse_idx] = scored[synapse_idx].first;
         }
     }
 

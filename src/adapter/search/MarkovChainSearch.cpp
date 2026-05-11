@@ -40,20 +40,20 @@ std::size_t MarkovChainSearch::search(const std::vector<double>& target_fp,
     std::vector<double> scores(limit);
     double min_score = std::numeric_limits<double>::max();
 
-    for (std::size_t s = 0; s < limit; ++s) {
-        const std::size_t idx = candidate_list[s];
+    for (std::size_t candidate_idx = 0; candidate_idx < limit; ++candidate_idx) {
+        const std::size_t idx = candidate_list[candidate_idx];
         const double usage = (idx < block_usages.size()) ? block_usages[idx] : 0.0;
         const double target_dist = analyser.distance(target_fp, blocks[idx].print.mfcc);
-        const double proximity_bonus = static_cast<double>(s) * 0.01;
-        scores[s] = target_dist + proximity_bonus + (usage * params.usage_weight);
-        min_score = std::min(scores[s], min_score);
+        const double proximity_bonus = static_cast<double>(candidate_idx) * 0.01;
+        scores[candidate_idx] = target_dist + proximity_bonus + (usage * params.usage_weight);
+        min_score = std::min(scores[candidate_idx], min_score);
     }
 
     // 2. Convert to softmax probabilities.
     const double T = std::max(temperature_, 1e-10);
     std::vector<double> probs(limit);
-    for (std::size_t s = 0; s < limit; ++s) {
-        probs[s] = std::exp(-(scores[s] - min_score) / T);
+    for (std::size_t prob_idx = 0; prob_idx < limit; ++prob_idx) {
+        probs[prob_idx] = std::exp(-(scores[prob_idx] - min_score) / T);
     }
 
     const double total = std::accumulate(probs.begin(), probs.end(), 0.0);
@@ -61,18 +61,18 @@ std::size_t MarkovChainSearch::search(const std::vector<double>& target_fp,
         SearchUtils::applyUsage(block_usages, current_block_index, params.usage_falloff);
         return current_block_index;
     }
-    for (auto& p : probs) {
-        p /= total;
+    for (auto& prob : probs) {
+        prob /= total;
     }
 
     // 3. Sample from the distribution.
-    const double r = rng::randomDouble();
+    const double random_double = rng::randomDouble();
     double cumulative = 0.0;
     std::size_t selected_synapse = limit - 1;
-    for (std::size_t s = 0; s < limit; ++s) {
-        cumulative += probs[s];
-        if (r <= cumulative) {
-            selected_synapse = s;
+    for (std::size_t synapse_idx = 0; synapse_idx < limit; ++synapse_idx) {
+        cumulative += probs[synapse_idx];
+        if (random_double <= cumulative) {
+            selected_synapse = synapse_idx;
             break;
         }
     }

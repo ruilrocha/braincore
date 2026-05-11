@@ -22,7 +22,8 @@ namespace audio::adapter::search {
  */
 class SynapseAwareSearch : public port::ISearchStrategy {
 protected:
-    explicit SynapseAwareSearch(std::shared_ptr<const SynapseGraph> graph) : graph_(std::move(graph)) {
+    explicit SynapseAwareSearch(std::shared_ptr<const SynapseGraph> graph)
+        : graph_(std::move(graph)) {
         if (!graph_) {
             throw std::invalid_argument(
                 "SynapseAwareSearch: a non-null SynapseGraph is required at construction");

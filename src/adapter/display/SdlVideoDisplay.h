@@ -61,7 +61,8 @@ private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture* texture_ = nullptr;
-    int texture_format_ = 0;  ///< Current SDL pixel format of texture_ (SDL_PixelFormat value).
+    uint32_t texture_format_ =
+        0;  ///< Current SDL pixel format of texture_ (SDL_PixelFormat value).
 
     mutable std::mutex frame_mutex_;
     std::shared_ptr<VideoFrame> latest_frame_;

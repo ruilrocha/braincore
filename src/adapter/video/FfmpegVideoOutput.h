@@ -29,8 +29,7 @@ public:
     FfmpegVideoOutput(const FfmpegVideoOutput&) = delete;
     FfmpegVideoOutput& operator=(const FfmpegVideoOutput&) = delete;
 
-    void onBlock(const std::optional<VideoSegment>& segment,
-                 double duration_sec,
+    void onBlock(const std::optional<VideoSegment>& segment, double duration_sec,
                  double block_audio_start_sec = 0.0) override;
 
     void close() override;
