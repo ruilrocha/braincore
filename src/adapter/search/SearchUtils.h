@@ -6,6 +6,9 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <limits>
+#include <numeric>
+#include <utility>
 #include <vector>
 
 /**
@@ -13,6 +16,9 @@
  *
  * Centralises stickyness logic, usage handling, and multi-fingerprint
  * blended distance computation.
+ *
+ * All functions treat `blocks` as read-only; usage state is maintained
+ * in a separate `block_usages` vector owned by the caller.
  */
 namespace audio::adapter::search::SearchUtils {
 
@@ -42,16 +48,18 @@ inline std::size_t stickify(const std::vector<double>& target_fp, const std::vec
 }
 
 /**
- * Deplete all blocks' usage counters and increment the selected block.
+ * Deplete all usage counters and increment the selected block's counter.
  */
-inline void applyUsage(std::vector<Block>& blocks, const std::size_t selected_idx,
+inline void applyUsage(std::vector<double>& block_usages, const std::size_t selected_idx,
                        const double falloff) {
     if (falloff < 1.0) {
-        for (auto& b : blocks) {
-            b.usage *= falloff;
+        for (auto& u : block_usages) {
+            u *= falloff;
         }
     }
-    blocks[selected_idx].usage += kUsageFactor;
+    if (selected_idx < block_usages.size()) {
+        block_usages[selected_idx] += kUsageFactor;
+    }
 }
 
 // ── Blended distance computation ───────────────────────────────────────
@@ -112,11 +120,13 @@ inline double layerDistance(const std::vector<double>& primary_a,
  * brain block, considering:
  *   - primary vs. secondary fingerprint blend (blend_ratio)
  *   - raw vs. normalised fingerprint blend (n_ratio)
- *   - usage penalty (novelty)
+ *   - usage penalty (novelty), read from @p block_usages
  *
  * @return Combined distance score (lower = better match).
  */
-inline double fullScore(const Block& target, const Block& candidate, const SearchParams& params) {
+inline double fullScore(const Block& target, const Block& candidate,
+                        const std::vector<double>& block_usages, const std::size_t candidate_idx,
+                        const SearchParams& params) {
     // Raw comparison.
     double raw_dist = detail::layerDistance(target.print.mfcc, target.print.spectral,
                                             candidate.print.mfcc, candidate.print.spectral, params);
@@ -130,8 +140,51 @@ inline double fullScore(const Block& target, const Block& candidate, const Searc
     }
 
     // Usage penalty ("novelty").
-    raw_dist += candidate.usage * params.usage_weight;
+    if (candidate_idx < block_usages.size()) {
+        raw_dist += block_usages[candidate_idx] * params.usage_weight;
+    }
     return raw_dist;
+}
+
+/**
+ * Score a range of candidate block indices and return the best-matching one.
+ *
+ * Uses `analyser.distance(target_fp, block.print.mfcc) + usage_weight * usage`
+ * — the same scoring used by all deterministic strategies.  Centralises the
+ * loop so ClosestSearch and SynapticSearch share a single implementation.
+ *
+ * @param indices       Range of candidate indices into @p blocks.  Any index
+ *                      out of range of @p blocks is skipped.
+ * @param target_fp     Primary fingerprint of the target block.
+ * @param blocks        All blocks in the brain (read-only).
+ * @param analyser      Analyser used for distance computation.
+ * @param block_usages  Per-block usage counters (caller-owned).
+ * @param params        Search tuning parameters.
+ * @return              {best_index, best_score}.  If @p indices is empty,
+ *                      returns {0, numeric_limits<double>::max()}.
+ */
+template <typename IndexRange>
+inline std::pair<std::size_t, double> scoreCandidates(const IndexRange& indices,
+                                                      const std::vector<double>& target_fp,
+                                                      const std::vector<Block>& blocks,
+                                                      const port::IAnalyser& analyser,
+                                                      const std::vector<double>& block_usages,
+                                                      const SearchParams& params) {
+    double best_score = std::numeric_limits<double>::max();
+    std::size_t best_idx = 0;
+    for (const std::size_t i : indices) {
+        if (i >= blocks.size()) {
+            continue;
+        }
+        const double usage = (i < block_usages.size()) ? block_usages[i] : 0.0;
+        const double score =
+            analyser.distance(target_fp, blocks[i].print.mfcc) + (usage * params.usage_weight);
+        if (score < best_score) {
+            best_score = score;
+            best_idx = i;
+        }
+    }
+    return {best_idx, best_score};
 }
 
 }  // namespace audio::adapter::search::SearchUtils

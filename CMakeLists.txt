@@ -21,6 +21,7 @@ file(GLOB_RECURSE AQUILA_SOURCES "src/aquila/*.cpp")
 add_library(brainio-core STATIC
     src/domain/Brain.cpp
     src/domain/Sound.cpp
+    src/domain/SynapseGraph.cpp
     src/usecase/SoundProcessor.cpp
     src/usecase/StreamProcessor.cpp
     src/usecase/EffectHelpers.cpp

@@ -2,11 +2,9 @@
 
 #include "Block.h"
 #include "BlockConfig.h"
-#include "SearchParams.h"
 #include "Sound.h"
 #include "VideoSegment.h"
 #include "port/IAnalyser.h"
-#include "port/ISearchStrategy.h"
 
 #include <cstddef>
 #include <memory>
@@ -29,36 +27,35 @@ struct SourceSound {
 };
 
 /**
- * Core domain aggregate: a collection of fingerprinted audio blocks.
+ * Core domain aggregate: an immutable collection of fingerprinted audio blocks.
  *
- * The Brain knows nothing about any concrete analysis technique or
- * external library.  It interacts with the outside world exclusively
- * through the port interfaces IAnalyser and ISearchStrategy.
+ * Brain is a pure data container after addSound() calls complete.
+ * It knows nothing about search strategies, synapse graphs, or per-stream
+ * state (current index, usage counters) — those concerns belong to the
+ * use-case layer (StreamProcessor, SoundProcessor).
+ *
+ * Typical lifecycle:
+ * @code
+ *   auto brain = std::make_shared<const Brain>(analyser, config);
+ *   brain->addSound(sound1, "a.wav");
+ *   brain->addSound(sound2, "b.wav");
+ *   // brain is now fully constructed and safe to share as const.
+ * @endcode
+ *
+ * For a cheap strategy-only rebuild (no re-fingerprinting), use rebuild():
+ * @code
+ *   auto new_brain = Brain::rebuild(old_brain->blocks(), analyser, new_config);
+ * @endcode
  */
 class Brain {
 public:
     /**
-     * @param analyser     Fingerprint strategy (injected port).
-     * @param search       Block-selection strategy (injected port).
-     * @param config       Block segmentation configuration (size, overlap, window).
+     * @param analyser  Fingerprint strategy (injected port).
+     * @param config    Block segmentation configuration (size, overlap, window).
      */
-    Brain(std::shared_ptr<port::IAnalyser> analyser, std::shared_ptr<port::ISearchStrategy> search,
-          BlockConfig config = {});
+    Brain(std::shared_ptr<port::IAnalyser> analyser, BlockConfig config = {});
 
-    /**
-     * Cheap rebuild factory — reuses pre-fingerprinted blocks without re-analysis.
-     *
-     * Use this when only the search strategy (or synapse graph) needs to change.
-     * It avoids the O(N × FFT) cost of a full brain reconstruction.
-     *
-     * @pre  @p blocks must not be in use by any audio thread.
-     *       Always call stopPlayback() (which joins the audio thread) before
-     *       calling takeBlocks(), then pass the result to this factory.
-     */
-    static Brain rebuild(std::vector<Block> blocks, std::shared_ptr<port::IAnalyser> analyser,
-                         std::shared_ptr<port::ISearchStrategy> strategy, BlockConfig config);
-
-    // ── Ingestion ──────────────────────────────────────────────────────
+    // ── Ingestion (call before any audio thread uses this Brain) ────────
 
     /** Segment @p sound into blocks, fingerprint each, and store them.
      *
@@ -70,7 +67,25 @@ public:
     void addSound(const Sound& sound, const std::string& name = "",
                   const std::optional<VideoMetadata>& video = std::nullopt);
 
-    // ── Source management ──────────────────────────────────────────────
+    // ── Cheap rebuild factory ───────────────────────────────────────────
+
+    /**
+     * Build a new Brain from pre-fingerprinted blocks without re-analysis.
+     *
+     * Use when only the search strategy or synapse graph needs to change —
+     * this avoids the O(N × FFT) cost of a full reconstruction.
+     * The @p blocks are *copied*, so the source Brain remains valid and can
+     * continue to be used by an in-flight audio thread.
+     *
+     * @param blocks   Pre-fingerprinted blocks (copied into the new Brain).
+     * @param analyser Analyser to associate with the new Brain.
+     * @param config   Block configuration for the new Brain.
+     */
+    static std::shared_ptr<Brain> rebuild(const std::vector<Block>& blocks,
+                                          std::shared_ptr<port::IAnalyser> analyser,
+                                          BlockConfig config);
+
+    // ── Source management ───────────────────────────────────────────────
 
     /** Enable or disable a source sound by filename. */
     void activateSound(const std::string& filename, bool active);
@@ -81,42 +96,7 @@ public:
     /** Access loaded source metadata. */
     [[nodiscard]] const std::vector<SourceSound>& sources() const { return sources_; }
 
-    // ── Search ─────────────────────────────────────────────────────────
-
-    /**
-     * Find the best-matching block for @p target_fp according to the
-     * injected search strategy and the current search parameters.
-     *
-     * @return Reference to the selected Block.
-     */
-    [[nodiscard]] const Block& findBestMatch(const std::vector<double>& target_fp,
-                                             const SearchParams& params);
-
-    // ── Synapse graph ──────────────────────────────────────────────────
-
-    /**
-     * Pre-compute a similarity graph: for every block, store the indices of
-     * the @p num_synapses most similar blocks.
-     */
-    void buildSynapses(std::size_t num_synapses = 1000);
-
-    // ── Jiggle ─────────────────────────────────────────────────────────
-
-    /**
-     * Randomize the current block index.
-     * Useful for breaking out of synaptic search loops.
-     */
-    void jiggle();
-
-    // ── Usage depletion ────────────────────────────────────────────────
-
-    /**
-     * Deplete all blocks' usage counters by the falloff rate.
-     * Centralised here so search strategies don't duplicate this logic.
-     */
-    void depleteUsage(double falloff);
-
-    // ── Accessors ──────────────────────────────────────────────────────
+    // ── Const data accessors (safe for concurrent audio-thread reads) ───
 
     [[nodiscard]] std::size_t size() const { return blocks_.size(); }
     [[nodiscard]] bool empty() const { return blocks_.empty(); }
@@ -126,29 +106,13 @@ public:
     [[nodiscard]] int overlap() const { return config_.overlap; }
 
     [[nodiscard]] const port::IAnalyser& analyser() const { return *analyser_; }
-
     [[nodiscard]] const std::vector<Block>& blocks() const { return blocks_; }
-    [[nodiscard]] std::vector<Block>& blocks() { return blocks_; }
-
-    [[nodiscard]] std::size_t currentBlockIndex() const { return current_block_index_; }
-
-    /**
-     * Move the block vector out of this Brain for use in Brain::rebuild().
-     *
-     * @pre  The audio thread must have fully stopped (stopPlayback() joined)
-     *       before calling this method — no concurrent reads of blocks_ are permitted.
-     *
-     * After this call the Brain is empty and must not be used for playback.
-     */
-    [[nodiscard]] std::vector<Block> takeBlocks();
 
 private:
     std::shared_ptr<port::IAnalyser> analyser_;
-    std::shared_ptr<port::ISearchStrategy> search_;
     BlockConfig config_;
     std::vector<Block> blocks_;
     std::vector<SourceSound> sources_;
-    std::size_t current_block_index_ = 0;
 };
 
 }  // namespace audio

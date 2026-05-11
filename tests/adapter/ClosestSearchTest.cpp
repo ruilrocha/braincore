@@ -68,8 +68,9 @@ TEST(ClosestSearch, PicksNearestBlock) {
     params.stickyness = 0.0;
     params.usage_weight = 0.0;
 
+    std::vector<double> block_usages(blocks.size(), 0.0);
     const std::vector target = {0.1};
-    const std::size_t idx = search.search(target, blocks, analyser, params, 0);
+    const std::size_t idx = search.search(target, blocks, analyser, params, 0, block_usages);
     EXPECT_EQ(idx, 0U);
 }
 
@@ -86,8 +87,9 @@ TEST(ClosestSearch, PicksMiddleBlockWhenClosest) {
     params.stickyness = 0.0;
     params.usage_weight = 0.0;
 
+    std::vector<double> block_usages(blocks.size(), 0.0);
     const std::vector target = {0.9};
-    const std::size_t idx = search.search(target, blocks, analyser, params, 0);
+    const std::size_t idx = search.search(target, blocks, analyser, params, 0, block_usages);
     EXPECT_EQ(idx, 1U);
 }
 
@@ -98,7 +100,8 @@ TEST(ClosestSearch, UsagePenaltyShiftsSelection) {
         makeBlock({0.0}),  // closest but will be penalised
         makeBlock({1.0}),
     };
-    blocks[0].usage = 1000.0;  // kUsageFactor worth of usage
+    std::vector<double> block_usages(blocks.size(), 0.0);
+    block_usages[0] = 1000.0;  // kUsageFactor worth of usage
 
     EuclideanAnalyser analyser;
     audio::adapter::search::ClosestSearch search;
@@ -107,7 +110,7 @@ TEST(ClosestSearch, UsagePenaltyShiftsSelection) {
     params.usage_weight = 1.0;
 
     const std::vector target = {0.0};
-    const std::size_t idx = search.search(target, blocks, analyser, params, 0);
+    const std::size_t idx = search.search(target, blocks, analyser, params, 0, block_usages);
     EXPECT_EQ(idx, 1U);
 }
 
@@ -118,7 +121,8 @@ TEST(ClosestSearch, SingleBlockAlwaysSelected) {
     const audio::adapter::search::ClosestSearch search;
     constexpr audio::SearchParams params;
 
+    std::vector<double> block_usages(blocks.size(), 0.0);
     const std::vector target = {0.0};
-    const std::size_t idx = search.search(target, blocks, analyser, params, 0);
+    const std::size_t idx = search.search(target, blocks, analyser, params, 0, block_usages);
     EXPECT_EQ(idx, 0U);
 }

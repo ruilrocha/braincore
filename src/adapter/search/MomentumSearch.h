@@ -30,9 +30,10 @@ public:
     MomentumSearch() = default;
 
     [[nodiscard]] std::size_t search(const std::vector<double>& target_fp,
-                                     std::vector<Block>& blocks, const port::IAnalyser& analyser,
-                                     const SearchParams& params,
-                                     std::size_t current_block_index) const override;
+                                     const std::vector<Block>& blocks,
+                                     const port::IAnalyser& analyser, const SearchParams& params,
+                                     std::size_t current_block_index,
+                                     std::vector<double>& block_usages) const override;
 
 private:
     /// Velocity vector in fingerprint space (mutable because search is const).

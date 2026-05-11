@@ -1,28 +1,21 @@
 #include "Brain.h"
 
-#include "Random.h"
 #include "WindowFunction.h"
 
 #include <algorithm>
 #include <ranges>
-#include <stdexcept>
 #include <utility>
 
 namespace audio {
 
-Brain::Brain(std::shared_ptr<port::IAnalyser> analyser,
-             std::shared_ptr<port::ISearchStrategy> search, const BlockConfig config)
-    : analyser_(std::move(analyser)), search_(std::move(search)), config_(config) {}
+Brain::Brain(std::shared_ptr<port::IAnalyser> analyser, const BlockConfig config)
+    : analyser_(std::move(analyser)), config_(config) {}
 
-Brain Brain::rebuild(std::vector<Block> blocks, std::shared_ptr<port::IAnalyser> analyser,
-                     std::shared_ptr<port::ISearchStrategy> strategy, BlockConfig config) {
-    Brain brain(std::move(analyser), std::move(strategy), config);
-    brain.blocks_ = std::move(blocks);
-    // Synapses from the old brain are now stale (strategy changed); callers must
-    // call buildSynapses() explicitly if the new strategy requires them.
-    for (auto& block : brain.blocks_) {
-        block.synapses.clear();
-    }
+std::shared_ptr<Brain> Brain::rebuild(const std::vector<Block>& blocks,
+                                      std::shared_ptr<port::IAnalyser> analyser,
+                                      const BlockConfig config) {
+    auto brain = std::make_shared<Brain>(std::move(analyser), config);
+    brain->blocks_ = blocks;  // copy — source Brain (and its audio thread) remains valid
     return brain;
 }
 
@@ -128,75 +121,6 @@ bool Brain::isBlockActive(const std::size_t index) const {
     return std::ranges::any_of(sources_, [index](const auto& sound) {
         return index >= sound.start && index < sound.end && sound.enabled;
     });
-}
-
-std::vector<Block> Brain::takeBlocks() {
-    return std::move(blocks_);
-}
-
-// ── Search ─────────────────────────────────────────────────────────────
-
-const Block& Brain::findBestMatch(const std::vector<double>& target_fp,
-                                  const SearchParams& params) {
-    if (blocks_.empty()) {
-        throw std::runtime_error("Brain::findBestMatch: brain is empty — add sounds first");
-    }
-
-    const std::size_t idx =
-        search_->search(target_fp, blocks_, *analyser_, params, current_block_index_);
-    current_block_index_ = idx;
-    return blocks_[idx];
-}
-
-// ── Synapse graph ──────────────────────────────────────────────────────
-
-void Brain::buildSynapses(const std::size_t num_synapses) {
-    const std::size_t num_blocks = blocks_.size();
-    const std::size_t k_synapses = std::min(num_synapses, num_blocks > 0 ? num_blocks - 1 : 0);
-
-    for (std::size_t i = 0; i < num_blocks; ++i) {
-        std::vector<std::pair<std::size_t, double>> scored;
-        scored.reserve(num_blocks - 1);
-
-        for (std::size_t j = 0; j < num_blocks; ++j) {
-            if (j == i) {
-                continue;
-            }
-            const double distance =
-                analyser_->distance(blocks_[i].print.mfcc, blocks_[j].print.mfcc);
-            scored.emplace_back(j, distance);
-        }
-
-        std::ranges::partial_sort(scored, scored.begin() + static_cast<std::ptrdiff_t>(k_synapses),
-                                  [](const auto& a, const auto& b) { return a.second < b.second; });
-
-        blocks_[i].synapses.clear();
-        blocks_[i].synapses.reserve(k_synapses);
-        for (auto s = 0; std::cmp_less(s, k_synapses); ++s) {
-            blocks_[i].synapses.push_back(scored[s].first);
-        }
-    }
-}
-
-// ── Jiggle ─────────────────────────────────────────────────────────────
-
-void Brain::jiggle() {
-    if (!blocks_.empty()) {
-        current_block_index_ = rng::randomIndex(blocks_.size());
-    } else {
-        current_block_index_ = 0;
-    }
-}
-
-// ── Usage depletion ────────────────────────────────────────────────────
-
-void Brain::depleteUsage(const double falloff) {
-    if (falloff >= 1.0) {
-        return;
-    }
-    for (auto& block : blocks_) {
-        block.usage *= falloff;
-    }
 }
 
 }  // namespace audio

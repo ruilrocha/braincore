@@ -1,8 +1,9 @@
 #pragma once
 
-#include "../../domain/port/ISearchStrategy.h"
+#include "SynapseAwareSearch.h"
 
 #include <cstddef>
+#include <memory>
 
 namespace audio::adapter::search {
 
@@ -11,33 +12,23 @@ namespace audio::adapter::search {
  * similarity, then performs a probabilistic walk through the brain's
  * timbral space.
  *
- * Unlike SynapticSearch (which picks the closest synapse), MarkovChainSearch
- * samples from a softmax distribution over the synapse list, producing
- * output that "flows" through the brain with musical coherence but
- * controlled randomness.
- *
- * Requires Brain::buildSynapses() to have been called first.
+ * The SynapseGraph is injected at construction time and must be non-null —
+ * construction throws `std::invalid_argument` otherwise.
  *
  * The `temperature` parameter controls the entropy of the walk:
  *   - Low  (0.1): nearly deterministic, follows closest synapses.
  *   - High (5.0): more adventurous, explores distant timbral regions.
- *
- * Works well with stickyness and momentum for even smoother transitions.
  */
-class MarkovChainSearch final : public port::ISearchStrategy {
+class MarkovChainSearch final : public SynapseAwareSearch {
 public:
-    /**
-     * @param temperature  Softmax temperature for transition probabilities.
-     * @param num_synapses Maximum number of synapses to consider per step.
-     */
-    explicit MarkovChainSearch(double temperature = 1.0, std::size_t num_synapses = 100);
+    explicit MarkovChainSearch(double temperature, std::size_t num_synapses,
+                               std::shared_ptr<const SynapseGraph> graph);
 
     [[nodiscard]] std::size_t search(const std::vector<double>& target_fp,
-                                     std::vector<Block>& blocks, const port::IAnalyser& analyser,
-                                     const SearchParams& params,
-                                     std::size_t current_block_index) const override;
-
-    [[nodiscard]] bool requiresSynapses() const override { return true; }
+                                     const std::vector<Block>& blocks,
+                                     const port::IAnalyser& analyser, const SearchParams& params,
+                                     std::size_t current_block_index,
+                                     std::vector<double>& block_usages) const override;
 
 private:
     double temperature_;

@@ -1,38 +1,33 @@
 #pragma once
 
-#include "../../domain/port/ISearchStrategy.h"
+#include "SynapseAwareSearch.h"
 
 #include <cstddef>
+#include <memory>
 
 namespace audio::adapter::search {
 
 /**
  * Graph-based "synaptic" search.
  *
- * Instead of scanning every block in the brain, this strategy only looks at
- * the pre-computed nearest-neighbours (synapses) of the *current* block.
- * This produces outputs that evolve smoothly through the brain's timbral
- * space rather than jumping wildly — a form of constrained random walk.
+ * Applies closest-match scoring restricted to the pre-computed nearest-neighbours
+ * of the *current* block, producing output that evolves smoothly through the
+ * brain's timbral space.
  *
- * Requires Brain::buildSynapses() to have been called first.
+ * The SynapseGraph is injected at construction time and must be non-null —
+ * construction throws `std::invalid_argument` otherwise.
  *
- * @p num_synapses controls how many of the current block's synapses are
- * evaluated (the list is ordered by closeness, so fewer synapses = more
- * constrained / more coherent output).
+ * @p num_synapses controls how many neighbours are evaluated per call.
  */
-class SynapticSearch final : public port::ISearchStrategy {
+class SynapticSearch final : public SynapseAwareSearch {
 public:
-    /**
-     * @param num_synapses Maximum number of synapses to evaluate per call.
-     */
-    explicit SynapticSearch(std::size_t num_synapses = 100);
+    explicit SynapticSearch(std::size_t num_synapses, std::shared_ptr<const SynapseGraph> graph);
 
     [[nodiscard]] std::size_t search(const std::vector<double>& target_fp,
-                                     std::vector<Block>& blocks, const port::IAnalyser& analyser,
-                                     const SearchParams& params,
-                                     std::size_t current_block_index) const override;
-
-    [[nodiscard]] bool requiresSynapses() const override { return true; }
+                                     const std::vector<Block>& blocks,
+                                     const port::IAnalyser& analyser, const SearchParams& params,
+                                     std::size_t current_block_index,
+                                     std::vector<double>& block_usages) const override;
 
 private:
     std::size_t num_synapses_;

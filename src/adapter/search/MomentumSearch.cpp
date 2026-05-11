@@ -7,9 +7,11 @@
 
 namespace audio::adapter::search {
 
-std::size_t MomentumSearch::search(const std::vector<double>& target_fp, std::vector<Block>& blocks,
+std::size_t MomentumSearch::search(const std::vector<double>& target_fp,
+                                   const std::vector<Block>& blocks,
                                    const port::IAnalyser& analyser, const SearchParams& params,
-                                   const std::size_t current_block_index) const {
+                                   const std::size_t current_block_index,
+                                   std::vector<double>& block_usages) const {
     if (blocks.empty()) {
         return 0;
     }
@@ -52,14 +54,15 @@ std::size_t MomentumSearch::search(const std::vector<double>& target_fp, std::ve
 
     for (std::size_t i = 0; i < blocks.size(); ++i) {
         double score = analyser.distance(search_target, blocks[i].print.mfcc);
-        score += blocks[i].usage * params.usage_weight;
+        const double usage = (i < block_usages.size()) ? block_usages[i] : 0.0;
+        score += usage * params.usage_weight;
         if (score < best_score) {
             best_score = score;
             best_idx = i;
         }
     }
 
-    SearchUtils::applyUsage(blocks, best_idx, params.usage_falloff);
+    SearchUtils::applyUsage(block_usages, best_idx, params.usage_falloff);
 
     return SearchUtils::stickify(search_target, blocks, analyser, best_idx, best_score,
                                  current_block_index, params.stickyness);

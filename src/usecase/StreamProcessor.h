@@ -8,6 +8,7 @@
 #include "../domain/port/IBlockEffect.h"
 #include "../domain/port/IParamController.h"
 #include "../domain/port/IRecorder.h"
+#include "../domain/port/ISearchStrategy.h"
 #include "../domain/port/IVideoOutput.h"
 
 #include <atomic>
@@ -22,20 +23,33 @@ namespace audio::usecase {
  * enabling real-time playback and infinite generative landscapes.
  *
  * Unlike SoundProcessor (which batch-processes an entire file),
- * StreamProcessor maintains internal state and yields one block at a
+ * StreamProcessor maintains per-stream state and yields one block at a
  * time, feeding each to an IAudioOutput for real-time playback.
  *
- * Two modes:
- *   - stream(brain, target):  process a target sound in real-time.
- *   - streamInfinite(brain):  generate audio endlessly by walking
- *                              through the brain's timbral space.
+ * ## Thread-safety model
  *
- * Optional video output: if a IVideoOutput is injected, onBlock() is called
+ * The audio thread (stream / streamInfinite) exclusively owns:
+ *   - `brain_` / `search_`    — set once at construction, never mutated.
+ *   - `current_block_idx_`    — current position in the brain.
+ *   - `block_usages_`         — per-block usage counters.
+ *   - `prev_block_`           — previous block for spectral morph.
+ *
+ * The control thread may call `stop()` and `setRecorder()` at any time
+ * (both are protected by atomics / mutex respectively).
+ *
+ * Two modes:
+ *   - stream(target):        process a target sound in real-time.
+ *   - streamInfinite(sr,ch): generate audio endlessly by walking through
+ *                             the brain's timbral space.
+ *
+ * Optional video output: if an IVideoOutput is injected, onBlock() is called
  * for every matched block with its VideoSegment (or nullopt for audio-only).
  */
 class StreamProcessor {
 public:
     /**
+     * @param brain            Brain to search through (const, immutable).
+     * @param search           Search strategy to use.
      * @param params           Initial search / blend / effect parameters.
      * @param target_config    How the target is segmented.
      * @param output           Audio output device (injected port).
@@ -44,8 +58,9 @@ public:
      * @param recorder         Optional output recorder (injected port).
      * @param video_output     Optional video output consumer (injected port).
      */
-    StreamProcessor(SearchParams params, BlockConfig target_config,
-                    std::shared_ptr<port::IAudioOutput> output,
+    StreamProcessor(std::shared_ptr<const Brain> brain,
+                    std::shared_ptr<port::ISearchStrategy> search, SearchParams params,
+                    BlockConfig target_config, std::shared_ptr<port::IAudioOutput> output,
                     std::shared_ptr<port::IBlockEffect> spectral_morph = nullptr,
                     std::shared_ptr<port::IParamController> param_controller = nullptr,
                     std::shared_ptr<port::IRecorder> recorder = nullptr,
@@ -57,7 +72,7 @@ public:
      *
      * Returns false if the audio output could not be opened.
      */
-    bool stream(Brain& brain, const Sound& target);
+    bool stream(const Sound& target);
 
     /**
      * Generate an infinite audio landscape from the brain.
@@ -66,11 +81,10 @@ public:
      * without a target, producing an endless evolving soundscape.
      * Does not return until stop() is called from another thread.
      *
-     * @param brain        Brain containing fingerprinted source blocks.
      * @param sample_rate  Playback sample rate (Hz).
      * @param channels     Number of output channels (default 2 = stereo).
      */
-    void streamInfinite(Brain& brain, int sample_rate, int channels = 2);
+    void streamInfinite(int sample_rate, int channels = 2);
 
     /**
      * Set or replace the recorder at runtime (thread-safe).
@@ -95,16 +109,27 @@ private:
     /// Get the active params (from controller if available, else stored copy).
     [[nodiscard]] SearchParams activeParams() const;
 
+    // ── Brain / search (audio-thread-only, set at construction) ───────
+    std::shared_ptr<const Brain> brain_;
+    std::shared_ptr<port::ISearchStrategy> search_;
+
+    // ── Audio-thread-only state ────────────────────────────────────────
+    std::size_t current_block_idx_ = 0;  ///< Current position in the brain.
+    std::vector<double> block_usages_;   ///< Per-block usage counters.
+    std::vector<double> prev_block_;     ///< Previous block for spectral morph.
+
+    // ── Injected adapters (immutable after construction) ──────────────
     SearchParams params_;
     BlockConfig target_config_;
     std::shared_ptr<port::IAudioOutput> output_;
     std::shared_ptr<port::IBlockEffect> spectral_morph_;
     std::shared_ptr<port::IParamController> param_controller_;
-    std::shared_ptr<port::IRecorder> recorder_;
     std::shared_ptr<port::IVideoOutput> video_output_;
+
+    // ── Recorder (swappable via setRecorder) ──────────────────────────
+    std::shared_ptr<port::IRecorder> recorder_;
     mutable std::mutex recorder_mutex_;
 
-    std::vector<double> prev_block_;  ///< Previous block for spectral morph.
     std::atomic<bool> running_{false};
 };
 
