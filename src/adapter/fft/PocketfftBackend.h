@@ -1,8 +1,8 @@
 #pragma once
 
-#include <vector>
-
 #include "../../domain/port/IFft.h"
+
+#include <vector>
 
 namespace audio::adapter::fft {
 
@@ -14,14 +14,13 @@ namespace audio::adapter::fft {
  */
 class PocketfftBackend final : public port::IFft {
 public:
-    [[nodiscard]] std::vector<ComplexValue> forward(
-        std::span<const double> input) const override;
+    [[nodiscard]] std::vector<ComplexValue> forward(std::span<const double> input) const override;
 
-    [[nodiscard]] std::vector<double> inverse(
-        std::span<const ComplexValue> input, std::size_t output_size) const override;
+    [[nodiscard]] std::vector<double> inverse(std::span<const ComplexValue> input,
+                                              std::size_t output_size) const override;
 
-    [[nodiscard]] std::vector<double> dct(
-        std::span<const double> input, std::size_t output_length) const override;
+    [[nodiscard]] std::vector<double> dct(std::span<const double> input,
+                                          std::size_t output_length) const override;
 };
 
-} // namespace audio::adapter::fft
+}  // namespace audio::adapter::fft

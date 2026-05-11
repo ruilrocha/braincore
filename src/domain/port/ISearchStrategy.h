@@ -1,8 +1,9 @@
 #pragma once
 
-#include <vector>
 #include "../Block.h"
 #include "../SearchParams.h"
+
+#include <vector>
 
 namespace audio::port {
 
@@ -28,12 +29,10 @@ public:
      *                            (used for stickyness / sequential biasing).
      * @return                    Index into @p blocks of the chosen block.
      */
-    [[nodiscard]] virtual std::size_t search(
-        const std::vector<double>& target_fp,
-        std::vector<Block>& blocks,
-        const IAnalyser& analyser,
-        const SearchParams& params,
-        std::size_t current_block_index) const = 0;
+    [[nodiscard]] virtual std::size_t search(const std::vector<double>& target_fp,
+                                             std::vector<Block>& blocks, const IAnalyser& analyser,
+                                             const SearchParams& params,
+                                             std::size_t current_block_index) const = 0;
 
     /**
      * Whether this strategy requires the synapse graph to be pre-built.
@@ -42,4 +41,4 @@ public:
     [[nodiscard]] virtual bool requiresSynapses() const { return false; }
 };
 
-} // namespace audio::port
+}  // namespace audio::port

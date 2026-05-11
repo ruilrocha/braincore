@@ -1,10 +1,10 @@
 #pragma once
 
-#include <memory>
-#include <vector>
-
 #include "../../domain/port/IAnalyser.h"
 #include "../../domain/port/IFft.h"
+
+#include <memory>
+#include <vector>
 
 namespace audio::adapter::analysis {
 
@@ -24,18 +24,17 @@ public:
      * @param num_mfcc     Number of MFCC coefficients (primary fingerprint size).
      * @param num_fft_bins Number of FFT magnitude bins (secondary fingerprint size).
      */
-    explicit MfccAnalyser(std::shared_ptr<port::IFft> fft,
-                          int num_mfcc = 12, int num_fft_bins = 100);
+    explicit MfccAnalyser(std::shared_ptr<port::IFft> fft, int num_mfcc = 12,
+                          int num_fft_bins = 100);
 
-    [[nodiscard]] std::vector<double> compute(
-        const std::vector<double>& block, int sample_rate) const override;
+    [[nodiscard]] std::vector<double> compute(const std::vector<double>& block,
+                                              int sample_rate) const override;
 
-    [[nodiscard]] Fingerprints analyse(
-        const std::vector<double>& block, int sample_rate) const override;
+    [[nodiscard]] AudioPrint analyse(const std::vector<double>& block,
+                                     int sample_rate) const override;
 
-    [[nodiscard]] double distance(
-        const std::vector<double>& a,
-        const std::vector<double>& b) const override;
+    [[nodiscard]] double distance(const std::vector<double>& a,
+                                  const std::vector<double>& b) const override;
 
 private:
     std::shared_ptr<port::IFft> fft_;
@@ -43,4 +42,4 @@ private:
     int num_fft_bins_;
 };
 
-} // namespace audio::adapter::analysis
+}  // namespace audio::adapter::analysis

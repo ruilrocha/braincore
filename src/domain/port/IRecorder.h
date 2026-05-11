@@ -46,5 +46,4 @@ public:
     [[nodiscard]] virtual bool isOpen() const = 0;
 };
 
-} // namespace audio::port
-
+}  // namespace audio::port

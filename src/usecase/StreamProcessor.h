@@ -1,10 +1,5 @@
 #pragma once
 
-#include <atomic>
-#include <memory>
-#include <mutex>
-#include <vector>
-
 #include "../domain/BlockConfig.h"
 #include "../domain/Brain.h"
 #include "../domain/SearchParams.h"
@@ -13,6 +8,12 @@
 #include "../domain/port/IBlockEffect.h"
 #include "../domain/port/IParamController.h"
 #include "../domain/port/IRecorder.h"
+#include "../domain/port/IVideoOutput.h"
+
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <vector>
 
 namespace audio::usecase {
 
@@ -28,6 +29,9 @@ namespace audio::usecase {
  *   - stream(brain, target):  process a target sound in real-time.
  *   - streamInfinite(brain):  generate audio endlessly by walking
  *                              through the brain's timbral space.
+ *
+ * Optional video output: if a IVideoOutput is injected, onBlock() is called
+ * for every matched block with its VideoSegment (or nullopt for audio-only).
  */
 class StreamProcessor {
 public:
@@ -38,13 +42,14 @@ public:
      * @param spectral_morph   Optional spectral morph effect (injected port).
      * @param param_controller Optional live parameter controller (injected port).
      * @param recorder         Optional output recorder (injected port).
+     * @param video_output     Optional video output consumer (injected port).
      */
-    StreamProcessor(SearchParams params,
-                    BlockConfig  target_config,
-                    std::shared_ptr<port::IAudioOutput>      output,
-                    std::shared_ptr<port::IBlockEffect>      spectral_morph   = nullptr,
-                    std::shared_ptr<port::IParamController>  param_controller = nullptr,
-                    std::shared_ptr<port::IRecorder>         recorder         = nullptr);
+    StreamProcessor(SearchParams params, BlockConfig target_config,
+                    std::shared_ptr<port::IAudioOutput> output,
+                    std::shared_ptr<port::IBlockEffect> spectral_morph = nullptr,
+                    std::shared_ptr<port::IParamController> param_controller = nullptr,
+                    std::shared_ptr<port::IRecorder> recorder = nullptr,
+                    std::shared_ptr<port::IVideoOutput> video_output = nullptr);
 
     /**
      * Stream a target sound through the brain in real-time, looping
@@ -80,9 +85,8 @@ public:
 
 private:
     /// Process one block's effects (granular, morph, stutter, envelope).
-    std::vector<double> applyEffects(const std::vector<double>& src,
-                                      std::size_t block_size,
-                                      const SearchParams& params);
+    std::vector<double> applyEffects(const std::vector<double>& src, std::size_t block_size,
+                                     const SearchParams& params);
 
     /// Push a multichannel block to the audio output (interleaved).
     /// Also tees to the recorder if one is set.
@@ -92,16 +96,16 @@ private:
     [[nodiscard]] SearchParams activeParams() const;
 
     SearchParams params_;
-    BlockConfig  target_config_;
-    std::shared_ptr<port::IAudioOutput>     output_;
-    std::shared_ptr<port::IBlockEffect>     spectral_morph_;
+    BlockConfig target_config_;
+    std::shared_ptr<port::IAudioOutput> output_;
+    std::shared_ptr<port::IBlockEffect> spectral_morph_;
     std::shared_ptr<port::IParamController> param_controller_;
-    std::shared_ptr<port::IRecorder>        recorder_;
-    mutable std::mutex                      recorder_mutex_;
+    std::shared_ptr<port::IRecorder> recorder_;
+    std::shared_ptr<port::IVideoOutput> video_output_;
+    mutable std::mutex recorder_mutex_;
 
     std::vector<double> prev_block_;  ///< Previous block for spectral morph.
-    std::atomic<bool>   running_{false};
+    std::atomic<bool> running_{false};
 };
 
-} // namespace audio::usecase
-
+}  // namespace audio::usecase

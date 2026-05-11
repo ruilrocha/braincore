@@ -1,9 +1,9 @@
 #pragma once
 
-#include <optional>
-
 #include "../Command.h"
 #include "../SearchParams.h"
+
+#include <optional>
 
 namespace audio::port {
 
@@ -61,18 +61,17 @@ public:
      * Called by main after handling a rebuild or state change.
      */
     struct ConfigState {
-        int         block_size      = 4096;
-        int         overlap         = 0;
-        int         window_shape    = 6; // Gaussian
+        int block_size = 4096;
+        int overlap = 0;
+        int window_shape = 6;  // Gaussian
         std::string search_strategy = "closest";
-        int         num_synapses    = 1000;
-        std::string target_path;         ///< Empty = infinite mode, set = stream mode.
-        bool        playing         = false;
-        bool        recording       = false;
+        int num_synapses = 1000;
+        std::string target_path;  ///< Empty = infinite mode, set = stream mode.
+        bool playing = false;
+        bool recording = false;
     };
 
     virtual void setConfigState(const ConfigState& config) = 0;
 };
 
-} // namespace audio::port
-
+}  // namespace audio::port

@@ -149,3 +149,50 @@ once (not per-filter).
 | **Stream** | Loop target continuously, real-time playback via IAudioOutput |
 | **Infinite** | No target — generate endless evolving soundscapes by drifting through timbral space |
 | **UI** | Interactive mode with WebSocket control panel for live parameter tweaking |
+
+## Video Support
+
+brain-io can ingest video files as brain sources. The audio track is extracted and
+fed into the matching pipeline exactly like any other audio source — the similarity
+engine is unchanged.
+
+**VideoSegment** is a value object attached to each `Block` that originated from a
+video file. It stores the source video path, the time offset (seconds) where this
+block's audio starts, and the block duration. Blocks from audio-only sources carry no
+`VideoSegment` (represented as `std::nullopt`).
+
+**VideoMetadata** is the input you pass to `Brain::addSound()` when loading a video
+source: the file path and where in the video the audio starts. The brain stamps each
+block with a computed `VideoSegment` offset at load time — no computation during
+search.
+
+**IVideoSource** (port) reads video files: extracts the audio track, queries file
+metadata (dimensions, fps, duration), and decodes a single RGB24 frame at a given
+timestamp.
+
+**IVideoOutput** (port) consumes output: called once per matched block with either
+the block's `VideoSegment` (video source) or `nullopt` (audio-only source → black
+frame). The CLI implementation uses FFmpeg to write a remixed video file or SDL3
+for real-time display.
+
+**FfmpegVideoSource** caches up to 4 simultaneously open `AVFormatContext` +
+`AVCodecContext` handles per path (LRU eviction), so repeated `readFrame()` calls
+on the same file do not pay file-open overhead. The audio track is resampled to 44100
+Hz via `SwrContext`.
+
+**FfmpegVideoOutput** writes an H.264/MP4 file — one frame per matched audio block.
+The output file path is derived from the audio output path (same name, `.mp4`
+extension). Opened lazily on the first `onBlock()` call.
+
+**Building with video support** requires ffmpeg to be installed separately (it is not
+in `conandata.yml` as building from source is heavy):
+
+```sh
+conan install --requires="ffmpeg/7.1.1" --output-folder=cmake-build-debug/conan/build/Debug --build=missing
+```
+
+**CLI usage:**
+```sh
+./brainio -v myvideo.mp4 -t sounds/target.wav
+./brainio ui -v myvideo.mp4 -vout           # UI mode with SDL3 display window
+```

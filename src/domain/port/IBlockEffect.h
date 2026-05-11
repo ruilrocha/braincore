@@ -30,11 +30,9 @@ public:
      *                1.0 = full effect.
      * @return        Processed output samples (same length as current).
      */
-    [[nodiscard]] virtual std::vector<double> apply(
-        const std::vector<double>& prev,
-        const std::vector<double>& current,
-        double amount) const = 0;
+    [[nodiscard]] virtual std::vector<double> apply(const std::vector<double>& prev,
+                                                    const std::vector<double>& current,
+                                                    double amount) const = 0;
 };
 
-} // namespace audio::port
-
+}  // namespace audio::port

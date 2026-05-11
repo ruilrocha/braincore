@@ -1,13 +1,13 @@
 #pragma once
 
+#include "../../domain/port/IParamController.h"
+
 #include <atomic>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <queue>
 #include <string>
-
-#include "../../domain/port/IParamController.h"
 
 namespace audio::adapter::control {
 
@@ -28,9 +28,10 @@ namespace audio::adapter::control {
 class WebSocketParamController final : public port::IParamController {
 public:
     /**
-     * @param port  TCP port to listen on (default 7770).
+     * @param port    TCP port to listen on (default 7770).
+     * @param silent  If true, suppress the startup banner.
      */
-    explicit WebSocketParamController(int port = 7770);
+    explicit WebSocketParamController(int port = 7770, bool silent = false);
     ~WebSocketParamController() override;
 
     // Non-copyable, non-movable.
@@ -60,13 +61,13 @@ private:
     std::unique_ptr<Impl> impl_;
 
     mutable std::mutex mutex_;
-    SearchParams       params_;
-    ConfigState        config_state_;
+    SearchParams params_;
+    ConfigState config_state_;
     std::queue<Command> command_queue_;
 
     int port_;
+    bool silent_{false};
     std::atomic<bool> running_{false};
 };
 
-} // namespace audio::adapter::control
-
+}  // namespace audio::adapter::control

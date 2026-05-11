@@ -18,14 +18,11 @@ namespace audio {
  * via the `n_ratio` parameter.
  */
 struct AudioPrint {
-    std::vector<double> mfcc;              ///< MFCC coefficients (timbral shape).
-    std::vector<double> spectral;          ///< FFT magnitude bins (spectral detail).
-    std::vector<double> normalised_mfcc;   ///< MFCC from normalised samples.
-    std::vector<double> normalised_spectral; ///< Spectral from normalised samples.
-    double              dominant_freq = 0.0;  ///< Dominant frequency (Hz).
+    std::vector<double> mfcc;                 ///< MFCC coefficients (timbral shape).
+    std::vector<double> spectral;             ///< FFT magnitude bins (spectral detail).
+    std::vector<double> normalised_mfcc;      ///< MFCC from normalised samples.
+    std::vector<double> normalised_spectral;  ///< Spectral from normalised samples.
+    double dominant_freq = 0.0;               ///< Dominant frequency (Hz).
 };
 
-// Backward-compatible alias.
-using Fingerprints = AudioPrint;
-
-} // namespace audio
+}  // namespace audio

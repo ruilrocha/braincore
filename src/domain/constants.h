@@ -14,4 +14,4 @@ constexpr int kDefaultMelBankSize = 24;
 /// Default cross-fade alpha (1.0 = 100% source replacement).
 constexpr double kDefaultAlpha = 1.0;
 
-} // namespace audio
+}  // namespace audio

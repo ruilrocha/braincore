@@ -15,8 +15,7 @@ void applyGrainEnvelope(std::vector<double>& grain);
 
 /// Extract a Hann-enveloped grain from @p src at @p offset with wrapping.
 [[nodiscard]] std::vector<double> extractGrain(const std::vector<double>& src,
-                                                std::size_t grain_size,
-                                                std::size_t offset);
+                                               std::size_t grain_size, std::size_t offset);
 
 /**
  * Granular scatter: break a block into overlapping micro-grains with
@@ -34,15 +33,10 @@ void applyGrainEnvelope(std::vector<double>& grain);
  * @param hop_randomness   Randomise base hop positions [0.0, 1.0].
  * @return                 Granularised block of block_size samples.
  */
-[[nodiscard]] std::vector<double> granularScatter(const std::vector<double>& src,
-                                                   std::size_t block_size,
-                                                   double grain_size_f,
-                                                   double scatter,
-                                                   double density,
-                                                   double size_variation = 0.0,
-                                                   double amp_variation = 0.0,
-                                                   double pitch_jitter = 0.0,
-                                                   double hop_randomness = 0.0);
+[[nodiscard]] std::vector<double> granularScatter(
+    const std::vector<double>& src, std::size_t block_size, double grain_size_f, double scatter,
+    double density, double size_variation = 0.0, double amp_variation = 0.0,
+    double pitch_jitter = 0.0, double hop_randomness = 0.0);
 
 /**
  * Stutter: probabilistically repeat a sub-region within the block.
@@ -62,6 +56,4 @@ void applyStutter(std::vector<double>& samples, double chance, int count);
  */
 void applyEnvelope(std::vector<double>& samples, int shape, double amount);
 
-} // namespace audio::usecase::effects
-
-
+}  // namespace audio::usecase::effects

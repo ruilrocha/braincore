@@ -1,19 +1,21 @@
 #include "SoundProcessor.h"
+
+#include "../domain/WindowFunction.h"
 #include "EffectHelpers.h"
 
 #include <algorithm>
 #include <utility>
 #include <vector>
 
-#include "../domain/WindowFunction.h"
-
 namespace audio::usecase {
 
-SoundProcessor::SoundProcessor(const SearchParams &params, BlockConfig target_config,
-                               std::shared_ptr<port::IBlockEffect> spectral_morph)
+SoundProcessor::SoundProcessor(const SearchParams& params, BlockConfig target_config,
+                               std::shared_ptr<port::IBlockEffect> spectral_morph,
+                               std::shared_ptr<port::IVideoOutput> video_output)
     : params_(params),
       target_config_(target_config),
-      spectral_morph_(std::move(spectral_morph)) {}
+      spectral_morph_(std::move(spectral_morph)),
+      video_output_(std::move(video_output)) {}
 
 // ── Main processing pipeline ───────────────────────────────────────────
 
@@ -36,14 +38,14 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
 
     // Check which effects are active.
     const bool do_granular = params_.grain_size < 1.0 || params_.grain_scatter > 0.0;
-    const bool do_morph    = spectral_morph_ && params_.spectral_morph > 0.0;
-    const bool do_stutter  = params_.stutter_chance > 0.0;
+    const bool do_morph = spectral_morph_ && params_.spectral_morph > 0.0;
+    const bool do_stutter = params_.stutter_chance > 0.0;
     const bool do_envelope = params_.envelope_shape > 0 && params_.envelope_amount > 0.0;
 
     // 1. Determine how many blocks fit in the target.
     std::size_t num_blocks = 0;
     if (ch0.size() >= bs) {
-        num_blocks = (ch0.size() - bs) / step + 1;
+        num_blocks = ((ch0.size() - bs) / step) + 1;
     }
     if (num_blocks == 0) {
         return {std::vector<Channel>{}, sample_rate};
@@ -54,19 +56,28 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
 
     for (std::size_t b = 0; b < num_blocks; ++b) {
         const auto offset = static_cast<std::ptrdiff_t>(b * step);
-        std::vector<double> block_samples(
-            ch0.begin() + offset,
-            ch0.begin() + offset + static_cast<std::ptrdiff_t>(bs));
+        std::vector block_samples(ch0.begin() + offset,
+                                  ch0.begin() + offset + static_cast<std::ptrdiff_t>(bs));
 
         WindowFunction::apply(block_samples, target_config_.window);
         auto fp = analyser.compute(block_samples, sample_rate);
         matches[b] = &brain.findBestMatch(fp, params_);
+
+        // Notify video output for this matched block.
+        // Intermediate blocks advance the timeline by step samples; only the
+        // final block covers a full bs-sample window.
+        if (video_output_) {
+            const std::size_t samples = (b < num_blocks - 1) ? step : bs;
+            const double block_dur =
+                static_cast<double>(samples) / static_cast<double>(sample_rate);
+            video_output_->onBlock(matches[b]->video, block_dur);
+        }
     }
 
     // 3. Reconstruct every channel using overlap-add.
-    const std::size_t output_samples = (num_blocks - 1) * step + bs;
-    std::vector<Channel> output_channels(num_channels, Channel(output_samples, 0.0));
-    std::vector<double> weight_acc(output_samples, 0.0);
+    const std::size_t output_samples = ((num_blocks - 1) * step) + bs;
+    std::vector output_channels(num_channels, Channel(output_samples, 0.0));
+    std::vector weight_acc(output_samples, 0.0);
 
     for (std::size_t ch = 0; ch < num_channels; ++ch) {
         const auto& tgt_ch = target.getChannel(static_cast<int>(ch));
@@ -78,21 +89,17 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
             // Get source samples for this channel.
             const auto& match = *matches[b];
             const std::vector<double>* src_ptr = &match.samples;
-            if (ch < match.channel_samples.size() &&
-                !match.channel_samples[ch].empty()) {
+            if (ch < match.channel_samples.size() && !match.channel_samples[ch].empty()) {
                 src_ptr = &match.channel_samples[ch];
             }
             std::vector<double> src = *src_ptr;
 
             // ── Granular scatter ───────────────────────────────────────
             if (do_granular) {
-                src = effects::granularScatter(src, bs, params_.grain_size,
-                                               params_.grain_scatter,
-                                               params_.grain_density,
-                                               params_.grain_size_variation,
-                                               params_.grain_amp_variation,
-                                               params_.grain_pitch_jitter,
-                                               params_.grain_hop_randomness);
+                src = effects::granularScatter(
+                    src, bs, params_.grain_size, params_.grain_scatter, params_.grain_density,
+                    params_.grain_size_variation, params_.grain_amp_variation,
+                    params_.grain_pitch_jitter, params_.grain_hop_randomness);
             }
 
             // ── Spectral morph with previous block ─────────────────────
@@ -130,7 +137,7 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
                 const double src_val = (i < src.size()) ? src[i] : 0.0;
                 const double tgt_val =
                     (tgt_offset + i < tgt_ch.size()) ? tgt_ch[tgt_offset + i] : 0.0;
-                const double blended = alpha * src_val + (1.0 - alpha) * tgt_val;
+                const double blended = (alpha * src_val) + ((1.0 - alpha) * tgt_val);
 
                 output_channels[ch][out_offset + i] += blended * env;
 
@@ -153,5 +160,4 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
     return {std::move(output_channels), sample_rate};
 }
 
-} // namespace audio::usecase
-
+}  // namespace audio::usecase

@@ -1,7 +1,8 @@
 #pragma once
 
-#include <cstddef>
 #include "../../domain/port/ISearchStrategy.h"
+
+#include <cstddef>
 
 namespace audio::adapter::search {
 
@@ -29,22 +30,18 @@ public:
      * @param temperature  Softmax temperature for transition probabilities.
      * @param num_synapses Maximum number of synapses to consider per step.
      */
-    explicit MarkovChainSearch(double temperature = 1.0,
-                               std::size_t num_synapses = 100);
+    explicit MarkovChainSearch(double temperature = 1.0, std::size_t num_synapses = 100);
 
-    [[nodiscard]] std::size_t search(
-        const std::vector<double>& target_fp,
-        std::vector<Block>& blocks,
-        const port::IAnalyser& analyser,
-        const SearchParams& params,
-        std::size_t current_block_index) const override;
+    [[nodiscard]] std::size_t search(const std::vector<double>& target_fp,
+                                     std::vector<Block>& blocks, const port::IAnalyser& analyser,
+                                     const SearchParams& params,
+                                     std::size_t current_block_index) const override;
 
     [[nodiscard]] bool requiresSynapses() const override { return true; }
 
 private:
-    double      temperature_;
+    double temperature_;
     std::size_t num_synapses_;
 };
 
-} // namespace audio::adapter::search
-
+}  // namespace audio::adapter::search

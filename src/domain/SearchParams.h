@@ -54,7 +54,7 @@ struct SearchParams {
 
     /// Spectral fingerprint comparison range (0-based bin indices).
     int spectral_start = 0;
-    int spectral_end   = 100;
+    int spectral_end = 100;
 
     // ── Momentum search ────────────────────────────────────────────────
 
@@ -66,7 +66,6 @@ struct SearchParams {
     /// Momentum decay [0.0, 1.0]: how quickly momentum dissipates per step.
     /// 1.0 = no decay, 0.0 = instant stop.
     double momentum_decay = 0.95;
-
 
     // ── Granular post-processing ───────────────────────────────────────
 
@@ -130,4 +129,4 @@ struct SearchParams {
     double envelope_amount = 0.0;
 };
 
-} // namespace audio
+}  // namespace audio

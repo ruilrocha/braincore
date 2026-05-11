@@ -1,9 +1,9 @@
 #pragma once
 
+#include "../../domain/port/IRecorder.h"
+
 #include <string>
 #include <vector>
-
-#include "../../domain/port/IRecorder.h"
 
 namespace audio::adapter::gateway {
 
@@ -32,4 +32,4 @@ private:
     int channels_ = 0;
 };
 
-} // namespace audio::adapter::gateway
+}  // namespace audio::adapter::gateway

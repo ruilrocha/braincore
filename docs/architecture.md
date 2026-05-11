@@ -21,14 +21,18 @@ port interfaces.
     │  MiniaudioOutput │  │             │  │  AudioPrint   │
     │  SpectralMorph   │  └─────────────┘  │  SearchParams │
     │  MfccAnalyser    │                   │  BlockConfig  │
-    │  ClosestSearch   │                   │  Ports:       │
-    │  SynapticSearch  │                   │   IAnalyser   │
-    │  MarkovChainSrch │                   │   ISearchStrat│
-    │  MomentumSearch  │                   │   ISoundFileGW│
+    │  ClosestSearch   │                   │  VideoFrame   │
+    │  SynapticSearch  │                   │  VideoSegment │
+    │  MarkovChainSrch │                   │  Ports:       │
+    │  MomentumSearch  │                   │   IAnalyser   │
+    │  FfmpegVideoSrc  │                   │   ISearchStrat│
+    │  FfmpegVideoOut  │                   │   ISoundFileGW│
     │  WebSocketParam  │                   │   IAudioOutput│
     └──────────────────┘                   │   IBlockEffect│
                                            │   IParamCtrl  │
                                            │   IRecorder   │
+                                           │   IVideoSource│
+                                           │   IVideoOutput│
                                            │   IFft        │
                                            └───────────────┘
 ```
@@ -74,7 +78,7 @@ Domain  ←──  Use-Cases  ←──  Adapters  ←──  main.cpp
 | `brainio-io` | DrLibsGateway, DrLibsRecorder | dr_libs (header-only) |
 | `brainio-playback` | MiniaudioOutput | miniaudio, readerwriterqueue |
 | `brainio-ui` | WebSocketParamController | ixwebsocket |
-| `brainio-capi` | C API (brainio.h) | core + fft |
+| `brainio-video` | FfmpegVideoSource, FfmpegVideoOutput | avcpp, FFmpeg |
 | `brainio` | CLI executable | all of the above |
 
 ## Data Flow
@@ -125,6 +129,8 @@ for real-time playback. Parameters can be tweaked live via WebSocket.
 | `IBlockEffect` | Block-pair post-processing (spectral morph) |
 | `IParamController` | Live parameter updates + command queue |
 | `IRecorder` | Incremental WAV recording |
+| `IVideoSource` | Video file reading: audio extraction, metadata, time-windowed frame decode |
+| `IVideoOutput` | Video frame writing: per-block callback + finalise |
 
 ## Runtime Search Strategy Swap
 

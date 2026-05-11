@@ -1,14 +1,13 @@
 #pragma once
 
+#include "../../domain/port/IAudioOutput.h"
+
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <mutex>
-#include <vector>
-
 #include <readerwriterqueue/readerwriterqueue.h>
-
-#include "../../domain/port/IAudioOutput.h"
+#include <vector>
 
 namespace audio::adapter::playback {
 
@@ -44,12 +43,11 @@ private:
     std::unique_ptr<moodycamel::ReaderWriterQueue<float>> ring_;
 
     // Condition variable for producer back-pressure.
-    std::mutex                  wait_mutex_;
-    std::condition_variable     ring_not_full_;
+    std::mutex wait_mutex_;
+    std::condition_variable ring_not_full_;
 
-    int  channels_ = 0;
+    int channels_ = 0;
     std::atomic<bool> open_{false};
 };
 
-} // namespace audio::adapter::playback
-
+}  // namespace audio::adapter::playback

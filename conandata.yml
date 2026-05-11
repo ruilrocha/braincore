@@ -7,9 +7,19 @@ requirements:
   # Audio I/O (dr_libs — header-only, WAV/FLAC/MP3)
   - "dr_libs/cci.20230529"
 
-  # Audio playback (optional, BRAINIO_BUILD_PLAYBACK)
+  # Audio playback
   - "miniaudio/0.11.18"
   - "readerwriterqueue/1.0.6"
 
-  # WebSocket UI (optional, BRAINIO_BUILD_UI)
+  # WebSocket UI
   - "ixwebsocket/11.4.5"
+
+  # Video I/O — avcpp + ffmpeg (pulled in transitively).
+  # FFmpeg must be pre-installed on the system (e.g. via Homebrew or apt).
+  - "avcpp/2.7.1"
+
+  # Real-time video display — SDL3 windowing + rendering.
+  - "sdl/3.4.0"
+
+  # Unit tests
+  - "gtest/1.14.0"

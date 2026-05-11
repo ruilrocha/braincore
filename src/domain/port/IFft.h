@@ -39,8 +39,8 @@ public:
      * @param output_size Expected number of real output samples.
      * @return            Real-valued time-domain samples (normalised by 1/N).
      */
-    [[nodiscard]] virtual std::vector<double> inverse(
-        std::span<const ComplexValue> input, std::size_t output_size) const = 0;
+    [[nodiscard]] virtual std::vector<double> inverse(std::span<const ComplexValue> input,
+                                                      std::size_t output_size) const = 0;
 
     /**
      * Discrete Cosine Transform (type-II).
@@ -49,8 +49,8 @@ public:
      * @param output_length Number of DCT coefficients to return.
      * @return              DCT coefficients (first output_length values).
      */
-    [[nodiscard]] virtual std::vector<double> dct(
-        std::span<const double> input, std::size_t output_length) const = 0;
+    [[nodiscard]] virtual std::vector<double> dct(std::span<const double> input,
+                                                  std::size_t output_length) const = 0;
 };
 
-} // namespace audio::port
+}  // namespace audio::port

@@ -3,8 +3,6 @@
 #include <cstddef>
 #include <random>
 
-
-
 /**
  * Thread-safe random number utilities using a high-quality PRNG.
  *
@@ -33,11 +31,10 @@ inline double randomDouble(const double lo, const double hi) {
 
 /// Random index in [0, n).
 inline std::size_t randomIndex(const std::size_t n) {
-    if (n == 0) return 0;
+    if (n == 0)
+        return 0;
     std::uniform_int_distribution<std::size_t> dist(0, n - 1);
     return dist(engine());
 }
 
-} // namespace audio::rng
-
-
+}  // namespace audio::rng
