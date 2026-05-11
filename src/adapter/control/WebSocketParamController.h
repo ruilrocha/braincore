@@ -28,9 +28,10 @@ namespace audio::adapter::control {
 class WebSocketParamController final : public port::IParamController {
 public:
     /**
-     * @param port  TCP port to listen on (default 7770).
+     * @param port    TCP port to listen on (default 7770).
+     * @param silent  If true, suppress the startup banner.
      */
-    explicit WebSocketParamController(int port = 7770);
+    explicit WebSocketParamController(int port = 7770, bool silent = false);
     ~WebSocketParamController() override;
 
     // Non-copyable, non-movable.
@@ -65,6 +66,7 @@ private:
     std::queue<Command> command_queue_;
 
     int port_;
+    bool silent_{false};
     std::atomic<bool> running_{false};
 };
 

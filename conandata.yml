@@ -17,3 +17,6 @@ requirements:
   # Video I/O (BRAINIO_BUILD_VIDEO=ON) — avcpp + ffmpeg (pulled in transitively).
   # Enable with: BRAINIO_BUILD_VIDEO=ON in your cmake configure step.
   - "avcpp/2.7.1"
+
+  # Real-time video display (BRAINIO_BUILD_DISPLAY=ON) — SDL3 windowing + rendering.
+  - "sdl/3.4.0"

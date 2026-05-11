@@ -24,6 +24,11 @@
 #include "adapter/video/FfmpegVideoSource.h"
 #include "adapter/video/FfmpegVideoOutput.h"
 #endif
+#ifdef BRAINIO_HAS_DISPLAY
+#include <SDL3/SDL.h>
+#include "adapter/display/SdlVideoDisplay.h"
+#include "adapter/display/VideoDisplayOutput.h"
+#endif
 
 // Domain (innermost layer)
 #include "domain/BlockConfig.h"
@@ -60,6 +65,7 @@ static void printUsage(const char* prog) {
         "  -t <path>  Target sound (required for batch and stream modes)\n"
         "  -o <path>  Output file path (default: sounds/target.wav)\n"
         "  -r <path>  Record stream/infinite output to WAV file\n"
+        "  -vout      Open SDL video display window (ui mode, requires BRAINIO_BUILD_DISPLAY=ON)\n"
         "  -h         Show this help message\n"
         "\n"
         "Examples:\n"
@@ -75,10 +81,16 @@ static void printUsage(const char* prog) {
 // ── Signal handler for graceful Ctrl+C shutdown ────────────────────────
 static std::atomic g_quit{false};
 static audio::usecase::StreamProcessor* g_stream = nullptr;
+#ifdef BRAINIO_HAS_DISPLAY
+static audio::adapter::display::SdlVideoDisplay* g_display = nullptr;
+#endif
 
 static void signalHandler(int /*sig*/) {
     g_quit = true;
     if (g_stream) g_stream->stop();
+#ifdef BRAINIO_HAS_DISPLAY
+    if (g_display) g_display->close();
+#endif
 }
 
 int main(int argc, char* argv[]) {
@@ -160,6 +172,14 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
             recording_path = argv[i];
             continue;
         }
+        if (arg == "-vout") {
+#if defined(BRAINIO_HAS_VIDEO) && defined(BRAINIO_HAS_DISPLAY)
+            show_video_display = true;
+#else
+            std::cerr << "Warning: -vout ignored (build without BRAINIO_BUILD_DISPLAY=ON).\n";
+#endif
+            continue;
+        }
         // Positional: mode keyword
         if (arg == "batch")          mode = Mode::Batch;
         else if (arg == "stream")    mode = Mode::Stream;
@@ -191,7 +211,7 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
     auto audio_output   = std::make_shared<audio::adapter::playback::MiniaudioOutput>();
     audio::adapter::gateway::DrLibsGateway gateway;
 
-    std::string current_search_name = "closest";
+    std::string current_search_name = "synaptic";
     auto search = makeSearch(current_search_name);
 
     // ── Block configuration ────────────────────────────────────────────
@@ -315,58 +335,121 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
         bool recording = false;
         std::shared_ptr<audio::adapter::gateway::DrLibsRecorder> recorder;
 
-        // Main event loop: poll commands every 100ms.
+        // ── SDL Video display (UI mode only, requires -vout flag) ─────────
+        // sdl_display persists for the whole UI session; video_out_ui is
+        // recreated each startPlayback (fresh decoder thread after stop).
+#if defined(BRAINIO_HAS_VIDEO) && defined(BRAINIO_HAS_DISPLAY)
+        std::shared_ptr<audio::adapter::display::SdlVideoDisplay> sdl_display;
+        const bool has_video_sources = std::ranges::any_of(
+            brain_sources, [](const auto& s) { return s.is_video; });
+        if (has_video_sources && show_video_display) {
+            int vw = 1280, vh = 720;
+            double vfps = 25.0, vdur = 0.0;
+            auto it = std::ranges::find_if(brain_sources,
+                                           [](const auto& s) { return s.is_video; });
+            if (it != brain_sources.end()) {
+                std::ignore = video_source->getInfo(resolvePath(it->path),
+                                                    vw, vh, vfps, vdur);
+            }
+            std::cout << std::format("Video display: {}x{} @ {:.1f}fps\n", vw, vh, vfps);
+            sdl_display = std::make_shared<audio::adapter::display::SdlVideoDisplay>(vw, vh);
+            g_display   = sdl_display.get();
+        }
+#endif
+
+        // ── Helper: start playback (stream or infinite) ───────────────────
+        auto startPlayback = [&](const std::string& tgt) {
+            if (playing) return;
+            params = param_ctrl->getParams();
+
+#if defined(BRAINIO_HAS_VIDEO) && defined(BRAINIO_HAS_DISPLAY)
+            // Create a fresh VideoDisplayOutput each time so the decoder thread
+            // is alive (the previous one was closed by stopPlayback).
+            std::shared_ptr<audio::port::IVideoOutput> video_out;
+            if (sdl_display) {
+                video_out = std::make_shared<audio::adapter::display::VideoDisplayOutput>(
+                    video_source, sdl_display);
+            }
+            streamer = std::make_unique<audio::usecase::StreamProcessor>(
+                params, target_config, audio_output, spectral_morph,
+                param_ctrl, recorder, video_out);
+#else
+            streamer = std::make_unique<audio::usecase::StreamProcessor>(
+                params, target_config, audio_output, spectral_morph,
+                param_ctrl, recorder);
+#endif
+            g_stream = streamer.get();
+            playing  = true;
+            cfg.playing = true;
+            param_ctrl->setConfigState(cfg);
+
+            if (!tgt.empty()) {
+                std::cout << std::format("▶ Starting stream (target: {})...\n", tgt);
+                cfg.target_path = tgt;
+                param_ctrl->setConfigState(cfg);
+                audio_thread = std::thread([&, tgt] {
+                    auto target_sound = gateway.loadSound(resolvePath(tgt));
+                    if (!target_sound) {
+                        std::cerr << std::format("Failed to load target: {}\n", tgt);
+                        return;
+                    }
+                    streamer->stream(brain, *target_sound);
+                });
+            } else {
+                std::cout << "▶ Starting infinite landscape...\n";
+                audio_thread = std::thread([&] {
+                    streamer->streamInfinite(brain, default_sr, default_ch);
+                });
+            }
+        };
+
+        // ── Helper: stop playback ─────────────────────────────────────────
+        auto stopPlayback = [&] {
+            if (!playing) return;
+            std::cout << "■ Stopping playback...\n";
+            streamer->stop();
+            if (audio_thread.joinable()) audio_thread.join();
+            g_stream = nullptr;
+            streamer.reset();
+            playing      = false;
+            cfg.playing  = false;
+            param_ctrl->setConfigState(cfg);
+        };
+
+        // Auto-start on launch.
+        startPlayback(target_path);
+
+        // ── Main event loop ───────────────────────────────────────────────
         while (!g_quit) {
+            // SDL event polling (main thread, runs whether or not display is active).
+#if defined(BRAINIO_HAS_VIDEO) && defined(BRAINIO_HAS_DISPLAY)
+            if (sdl_display) {
+                SDL_Event ev;
+                while (SDL_PollEvent(&ev)) {
+                    if (ev.type == SDL_EVENT_QUIT) {
+                        g_quit = true;
+                        break;
+                    }
+                }
+                if (!sdl_display->renderLatestFrame()) {
+                    // Display closed (e.g. window X button).
+                    g_quit = true;
+                }
+            }
+#endif
+            // Poll WebSocket commands (always, even when SDL is active).
             while (auto cmd_opt = param_ctrl->pollCommand()) {
                 std::visit([&]<typename T0>(T0&& cmd) {
                     using T = std::decay_t<T0>;
 
                     if constexpr (std::is_same_v<T, audio::StartCommand>) {
                         if (playing) return;
-                        params = param_ctrl->getParams();
-
-                        streamer = std::make_unique<audio::usecase::StreamProcessor>(
-                            params, target_config, audio_output, spectral_morph,
-                            param_ctrl, recorder);
-                        g_stream = streamer.get();
-                        playing = true;
-                        cfg.playing = true;
-                        param_ctrl->setConfigState(cfg);
-
-                        // Decide mode: if target_path is set, use stream; otherwise infinite.
                         const std::string tgt = cmd.target_path.empty()
                             ? target_path : cmd.target_path;
-                        if (!tgt.empty()) {
-                            // Stream mode with a target.
-                            std::cout << std::format("▶ Starting stream (target: {})...\n", tgt);
-                            cfg.target_path = tgt;
-                            param_ctrl->setConfigState(cfg);
-                            audio_thread = std::thread([&, tgt] {
-                                auto target_sound = gateway.loadSound(resolvePath(tgt));
-                                if (!target_sound) {
-                                    std::cerr << std::format("Failed to load target: {}\n", tgt);
-                                    return;
-                                }
-                                streamer->stream(brain, *target_sound);
-                            });
-                        } else {
-                            // Infinite mode.
-                            std::cout << "▶ Starting infinite landscape...\n";
-                            audio_thread = std::thread([&] {
-                                streamer->streamInfinite(brain, default_sr, default_ch);
-                            });
-                        }
+                        startPlayback(tgt);
                     }
                     else if constexpr (std::is_same_v<T, audio::StopCommand>) {
-                        if (!playing) return;
-                        std::cout << "■ Stopping playback...\n";
-                        streamer->stop();
-                        if (audio_thread.joinable()) audio_thread.join();
-                        g_stream = nullptr;
-                        streamer.reset();
-                        playing = false;
-                        cfg.playing = false;
-                        param_ctrl->setConfigState(cfg);
+                        stopPlayback();
                     }
                     else if constexpr (std::is_same_v<T, audio::RecordCommand>) {
                         if (cmd.enable && !recording) {
@@ -378,32 +461,23 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
                                 cfg.recording = true;
                                 param_ctrl->setConfigState(cfg);
                                 std::cout << std::format("⏺ Recording to {}\n", path);
-                                // Attach to running streamer if playing.
                                 if (streamer) streamer->setRecorder(recorder);
                             } else {
                                 std::cerr << std::format("Failed to open recording: {}\n", path);
                                 recorder.reset();
                             }
                         } else if (!cmd.enable && recording) {
-                            // Detach from streamer first, then close.
                             if (streamer) streamer->setRecorder(nullptr);
                             recorder->close();
                             recorder.reset();
-                            recording = false;
+                            recording    = false;
                             cfg.recording = false;
                             param_ctrl->setConfigState(cfg);
                             std::cout << "⏹ Recording stopped.\n";
                         }
                     }
                     else if constexpr (std::is_same_v<T, audio::RebuildCommand>) {
-                        if (playing) {
-                            std::cout << "■ Stopping for rebuild...\n";
-                            streamer->stop();
-                            if (audio_thread.joinable()) audio_thread.join();
-                            g_stream = nullptr;
-                            streamer.reset();
-                            playing = false;
-                        }
+                        stopPlayback();
 
                         std::cout << std::format(
                             "🔄 Rebuilding brain: block_size={}, window={}, search={}\n",
@@ -414,7 +488,6 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
                             search = makeSearch(current_search_name);
                         }
 
-                        // Only rebuild if block config changed; otherwise just swap strategy.
                         const bool config_changed =
                             cmd.block_size != source_config.block_size
                             || cmd.overlap != source_config.overlap
@@ -446,15 +519,24 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
                 }, *cmd_opt);
             }
 
+            // Sleep: 16ms when SDL display is active (~60fps), else 100ms.
+#if defined(BRAINIO_HAS_VIDEO) && defined(BRAINIO_HAS_DISPLAY)
+            std::this_thread::sleep_for(
+                sdl_display ? std::chrono::milliseconds(16) : std::chrono::milliseconds(100));
+#else
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+#endif
         }
 
-        // Cleanup on Ctrl+C.
-        if (playing) {
-            streamer->stop();
-            if (audio_thread.joinable()) audio_thread.join();
-        }
+        // Cleanup on quit.
+        stopPlayback();
         if (recorder && recorder->isOpen()) recorder->close();
+#if defined(BRAINIO_HAS_VIDEO) && defined(BRAINIO_HAS_DISPLAY)
+        if (sdl_display) {
+            g_display = nullptr;
+            sdl_display->close();
+        }
+#endif
         param_ctrl->stop();
         std::cout << "\nUI mode stopped.\n";
         return 0;
@@ -474,7 +556,7 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
 
         std::shared_ptr<audio::port::IParamController> param_ctrl;
 #ifdef BRAINIO_HAS_UI
-        auto ws_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>();
+        auto ws_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>(7770, /*silent=*/true);
         ws_ctrl->setParams(params);
         ws_ctrl->start();
         param_ctrl = ws_ctrl;
@@ -498,6 +580,7 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
         g_stream = streamer.get();
 
         streamer->streamInfinite(brain, default_sr, default_ch);
+
 #ifdef BRAINIO_HAS_UI
         if (param_ctrl) {
             std::dynamic_pointer_cast<audio::adapter::control::WebSocketParamController>(param_ctrl)->stop();
@@ -526,7 +609,7 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
 
         std::shared_ptr<audio::port::IParamController> param_ctrl;
 #ifdef BRAINIO_HAS_UI
-        auto ws_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>();
+        auto ws_ctrl = std::make_shared<audio::adapter::control::WebSocketParamController>(7770, /*silent=*/true);
         ws_ctrl->setParams(params);
         ws_ctrl->start();
         param_ctrl = ws_ctrl;
@@ -544,14 +627,19 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
             }
         }
 
+        // ── Optionally create SDL video display ───────────────────────
+        std::shared_ptr<audio::port::IVideoOutput> video_out_stream;
+
         auto streamer = std::make_unique<audio::usecase::StreamProcessor>(
-            params, target_config, audio_output, spectral_morph, param_ctrl, recorder);
+            params, target_config, audio_output, spectral_morph,
+            param_ctrl, recorder, video_out_stream);
         g_stream = streamer.get();
 
         if (!streamer->stream(brain, *target)) {
             std::cerr << "Failed to open audio device.\n";
             return 1;
         }
+
 #ifdef BRAINIO_HAS_UI
         if (param_ctrl) {
             std::dynamic_pointer_cast<audio::adapter::control::WebSocketParamController>(param_ctrl)->stop();
@@ -575,10 +663,11 @@ std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
                 std::filesystem::path(resolvePath(output_path))
                     .replace_extension(".mp4").string();
             int vw = 1280, vh = 720;
-            double vfps = 25.0, vdur = 0.0;
+            double vfps = 25.0;
             auto it = std::ranges::find_if(brain_sources,
                                            [](const auto& s) { return s.is_video; });
             if (it != brain_sources.end()) {
+                double vdur = 0.0;
                 std::ignore = video_source->getInfo(resolvePath(it->path), vw, vh, vfps, vdur);
             }
             video_out = std::make_shared<audio::adapter::video::FfmpegVideoOutput>(

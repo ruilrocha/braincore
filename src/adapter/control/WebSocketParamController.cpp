@@ -103,8 +103,8 @@ struct WebSocketParamController::Impl {
         : server(port, "0.0.0.0") {}
 };
 
-WebSocketParamController::WebSocketParamController(const int port)
-    : port_(port) {}
+WebSocketParamController::WebSocketParamController(const int port, const bool silent)
+    : port_(port), silent_(silent) {}
 
 WebSocketParamController::~WebSocketParamController() {
     stop();
@@ -185,12 +185,14 @@ void WebSocketParamController::start() {
     impl_->server.start();
     running_ = true;
 
-    std::cout << std::format(
-        "\n╔══════════════════════════════════════════════════╗\n"
-        "║  WebSocket control server: ws://localhost:{:<5}  ║\n"
-        "║  Open web/control-panel.html in your browser     ║\n"
-        "╚══════════════════════════════════════════════════╝\n\n",
-        port_);
+    if (!silent_) {
+        std::cout << std::format(
+            "\n╔══════════════════════════════════════════════════╗\n"
+            "║  WebSocket control server: ws://localhost:{:<5}  ║\n"
+            "║  Open web/control-panel.html in your browser     ║\n"
+            "╚══════════════════════════════════════════════════╝\n\n",
+            port_);
+    }
 }
 
 void WebSocketParamController::stop() {

@@ -8,6 +8,7 @@ option(BRAINIO_BUILD_IO       "Build audio file I/O adapter (dr_libs)" ON)
 option(BRAINIO_BUILD_PLAYBACK "Build miniaudio playback adapter"       ON)
 option(BRAINIO_BUILD_UI       "Build WebSocket UI layer"               ON)
 option(BRAINIO_BUILD_VIDEO    "Build video I/O adapter (FFmpeg)"       ON)
+option(BRAINIO_BUILD_DISPLAY  "Build real-time SDL2 video display"     OFF)
 option(BRAINIO_BUILD_CLI      "Build CLI executable"                   ON)
 
 # ── Find packages ──────────────────────────────────────────────────────
@@ -28,6 +29,10 @@ endif()
 
 if(BRAINIO_BUILD_VIDEO)
     find_package(avcpp REQUIRED)
+endif()
+
+if(BRAINIO_BUILD_DISPLAY)
+    find_package(SDL3 REQUIRED)
 endif()
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -102,6 +107,21 @@ if(BRAINIO_BUILD_VIDEO)
 endif()
 
 # ═══════════════════════════════════════════════════════════════════════
+# brainio-display  (Real-time SDL2 video display — optional)
+# ═══════════════════════════════════════════════════════════════════════
+if(BRAINIO_BUILD_DISPLAY)
+    add_library(brainio-display STATIC
+        src/adapter/display/SdlVideoDisplay.cpp
+        src/adapter/display/VideoDisplayOutput.cpp)
+    target_include_directories(brainio-display PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(brainio-display PUBLIC
+        brainio-core
+        SDL3::SDL3
+        readerwriterqueue::readerwriterqueue)
+    target_compile_definitions(brainio-display PUBLIC BRAINIO_HAS_DISPLAY)
+endif()
+
+# ═══════════════════════════════════════════════════════════════════════
 # brainio-capi  (C-compatible API for XCFramework / Swift consumption)
 # ═══════════════════════════════════════════════════════════════════════
 add_library(brainio-capi STATIC
@@ -148,6 +168,11 @@ if(BRAINIO_BUILD_CLI)
     if(BRAINIO_BUILD_VIDEO)
         target_link_libraries(brainio PRIVATE brainio-video)
         target_compile_definitions(brainio PRIVATE BRAINIO_HAS_VIDEO)
+    endif()
+
+    if(BRAINIO_BUILD_DISPLAY)
+        target_link_libraries(brainio PRIVATE brainio-display)
+        target_compile_definitions(brainio PRIVATE BRAINIO_HAS_DISPLAY)
     endif()
 
     # Platform-specific libs.
