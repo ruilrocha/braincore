@@ -18,7 +18,8 @@ spectral morphing) can be applied during reconstruction.
   - **dr_libs** (header-only) — audio file I/O (WAV, FLAC, MP3)
   - **miniaudio** (v0.11.18) — cross-platform audio playback (real-time output)
   - **ixwebsocket** (v11.4.5) — WebSocket server for real-time parameter control
-  - **avcpp** (v2.7.1) — C++ wrapper for FFmpeg; video I/O and encoding (`BRAINIO_BUILD_VIDEO`)
+  - **avcpp** (v2.7.1) — C++ wrapper for FFmpeg; video I/O and encoding
+  - **SDL3** (v3.4.0) — Real-time video display
   - **Aquila** (in-tree, `src/aquila/`) — Mel filter bank
 - **Header guards:** Use `#pragma once` (not `#ifndef`).
 - **Linting/Formatting:** None configured yet; follow Google C++ Style Guide.
@@ -182,29 +183,29 @@ main.cpp                                ← Composition Root (wires adapters →
 ## Project Layout and Key Files
 
 ### `src/domain/` — Domain Core
-| File | Description |
-|------|-------------|
-| `Sound.h / .cpp` | Immutable multi-channel audio container. |
-| `Block.h` | Value type: samples, channel_samples, fingerprint, secondary_fingerprint, normalised variants, dominant_freq, usage, synapses, video (optional VideoSegment). |
-| `Brain.h / .cpp` | Core aggregate. Constructor: `Brain(analyser, search, BlockConfig)`. Methods: `addSound()`, `findBestMatch()`, `buildSynapses()`, `jiggle()`, `depleteUsage()`, `activateSound()`, `isBlockActive()`. |
-| `Command.h` | Value object: `std::variant<StartCommand, StopCommand, RecordCommand, RebuildCommand>`. Used by UI mode to send lifecycle actions from the controller to the main event loop. |
-| `Fingerprints.h` | Value object: `primary`, `secondary`, `normalised_primary`, `normalised_secondary`, `dominant_freq`. |
-| `BlockConfig.h` | Value object: `block_size`, `overlap`, `window` (WindowShape enum). |
-| `WindowFunction.h` | Pure-math utility: `apply()` (7 window shapes), `normalise()` (DC-remove + peak-scale). |
-| `SearchParams.h` | All UI-controllable parameters — see SearchParams section below. |
-| `Random.h` | Thread-safe random utilities (`rng::randomDouble()`, `rng::randomIndex(n)`) using `std::mt19937`. Replaces all `std::rand()` usage. |
-| `constants.h` | `kDefaultBlockSize` (4096), `kDefaultNumMfcc` (12), `kDefaultMelBankSize` (24), `kDefaultAlpha` (1.0). |
-| `VideoFrame.h` | RGB24 decoded video frame: `width`, `height`, `pixels`, `timestamp_seconds`. `VideoFrame::black(w,h)` creates a zeroed frame for audio-only blocks. |
-| `VideoSegment.h` | `VideoSegment` — `source_path`, `offset_seconds`, `duration_seconds`. Stored on Block when sourced from video. `VideoMetadata` — associates a loaded audio track with its originating video file. |
-| `port/IAnalyser.h` | Port: `compute(block, sr)` → primary fingerprint; `analyse(block, sr)` → full Fingerprints bundle; `distance(a, b)` → double. |
-| `port/ISearchStrategy.h` | Port: `search(target_fp, blocks, analyser, params, current_idx)` → index. |
+| File                       | Description |
+|----------------------------|-------------|
+| `Sound.h / .cpp`           | Immutable multi-channel audio container. |
+| `Block.h`                  | Value type: samples, channel_samples, fingerprint, secondary_fingerprint, normalised variants, dominant_freq, usage, synapses, video (optional VideoSegment). |
+| `Brain.h / .cpp`           | Core aggregate. Constructor: `Brain(analyser, search, BlockConfig)`. Methods: `addSound()`, `findBestMatch()`, `buildSynapses()`, `jiggle()`, `depleteUsage()`, `activateSound()`, `isBlockActive()`. |
+| `Command.h`                | Value object: `std::variant<StartCommand, StopCommand, RecordCommand, RebuildCommand>`. Used by UI mode to send lifecycle actions from the controller to the main event loop. |
+| `AudioPrint.h`             | Value object: `primary`, `secondary`, `normalised_primary`, `normalised_secondary`, `dominant_freq`. |
+| `BlockConfig.h`            | Value object: `block_size`, `overlap`, `window` (WindowShape enum). |
+| `WindowFunction.h`         | Pure-math utility: `apply()` (7 window shapes), `normalise()` (DC-remove + peak-scale). |
+| `SearchParams.h`           | All UI-controllable parameters — see SearchParams section below. |
+| `Random.h`                 | Thread-safe random utilities (`rng::randomDouble()`, `rng::randomIndex(n)`) using `std::mt19937`. Replaces all `std::rand()` usage. |
+| `constants.h`              | `kDefaultBlockSize` (4096), `kDefaultNumMfcc` (12), `kDefaultMelBankSize` (24), `kDefaultAlpha` (1.0). |
+| `VideoFrame.h`             | RGB24 decoded video frame: `width`, `height`, `pixels`, `timestamp_seconds`. `VideoFrame::black(w,h)` creates a zeroed frame for audio-only blocks. |
+| `VideoSegment.h`           | `VideoSegment` — `source_path`, `offset_seconds`, `duration_seconds`. Stored on Block when sourced from video. `VideoMetadata` — associates a loaded audio track with its originating video file. |
+| `port/IAnalyser.h`         | Port: `compute(block, sr)` → primary fingerprint; `analyse(block, sr)` → full Fingerprints bundle; `distance(a, b)` → double. |
+| `port/ISearchStrategy.h`   | Port: `search(target_fp, blocks, analyser, params, current_idx)` → index. |
 | `port/ISoundFileGateway.h` | Port: `loadSound(path)`, `saveSound(path, sound)`. |
-| `port/IAudioOutput.h` | Port: `open()`, `write()`, `close()` — real-time audio playback. |
-| `port/IBlockEffect.h` | Port: `apply(prev, current, amount)` — block-pair effect processing. |
-| `port/IParamController.h` | Port: `start()`, `stop()`, `getParams()`, `setParams()`, `pollCommand()`, `setConfigState()` — live parameter control and command queue. |
-| `port/IRecorder.h` | Port: `open(path, sr, ch)`, `write(samples)`, `close()` — incremental audio recording. |
-| `port/IVideoSource.h` | Port: `loadAudio(path)` → Sound; `getInfo(path, w, h, fps, dur)` → bool; `readFrame(path, t)` → optional VideoFrame; `readSegment(path, start, end)` → vector of VideoFrames. |
-| `port/IVideoOutput.h` | Port: `onBlock(segment, duration_sec)` — called per output block with optional VideoSegment; `close()` — flush and finalise output. |
+| `port/IAudioOutput.h`      | Port: `open()`, `write()`, `close()` — real-time audio playback. |
+| `port/IBlockEffect.h`      | Port: `apply(prev, current, amount)` — block-pair effect processing. |
+| `port/IParamController.h`  | Port: `start()`, `stop()`, `getParams()`, `setParams()`, `pollCommand()`, `setConfigState()` — live parameter control and command queue. |
+| `port/IRecorder.h`         | Port: `open(path, sr, ch)`, `write(samples)`, `close()` — incremental audio recording. |
+| `port/IVideoSource.h`      | Port: `loadAudio(path)` → Sound; `getInfo(path, w, h, fps, dur)` → bool; `readFrame(path, t)` → optional VideoFrame; `readSegment(path, start, end)` → vector of VideoFrames. |
+| `port/IVideoOutput.h`      | Port: `onBlock(segment, duration_sec)` — called per output block with optional VideoSegment; `close()` — flush and finalise output. |
 
 ### `src/usecase/` — Application Use-Cases
 | File | Description |
@@ -246,7 +247,7 @@ main.cpp                                ← Composition Root (wires adapters →
 |------|-------------|
 | `PocketfftSpectralMorph.h / .cpp` | Implements `IBlockEffect`. Spectral morphing via PocketFFT: interpolates magnitudes and blends phases in the frequency domain with RMS matching. |
 
-### `src/adapter/video/` — Video Adapters (optional, `BRAINIO_BUILD_VIDEO`)
+### `src/adapter/video/` — Video Adapters
 | File | Description |
 |------|-------------|
 | `FfmpegVideoSource.h / .cpp` | Implements `IVideoSource` using avcpp/FFmpeg. Extracts audio tracks, queries metadata, decodes video frames. Smart seek: avoids per-block seek+flush for sequential reads; H264-safe 2-second pre-roll seek for backward/random jumps. Per-path `VideoCtx` cache with buffered break-frame for efficient time-window reads. |
@@ -361,8 +362,7 @@ All parameters are designed to be bound to UI sliders/knobs:
 24. **Video I/O** — `IVideoSource` / `IVideoOutput` ports decouple video logic from
     the domain. Similarity matching is always audio-only (MFCC); the matched block's
     `VideoSegment` is passed to `IVideoOutput::onBlock()` to write the corresponding
-    video clip. Audio-only blocks receive `nullopt` → black frame. The CLI adapter
-    uses avcpp/FFmpeg; a Swift app can implement the ports natively with AVFoundation.
+    video clip. Audio-only blocks receive `nullopt` → black frame.
 25. **Video sync accuracy** — `FfmpegVideoOutput` uses an integer-accumulator to emit
     exactly `round(total_audio_time × fps) − frames_already_emitted` frames per block,
     preventing drift over long outputs. Encoder timebase `1/90000`; explicit per-packet
@@ -383,7 +383,8 @@ All parameters are designed to be bound to UI sliders/knobs:
   Supported video: any format FFmpeg can decode (MP4, MOV, MKV, …).
 - **Video output:** when any `-v` source is present, batch mode automatically writes a
   matched video file alongside the output WAV (same base name, `.mp4` extension).
-- **Changing search strategy:** replace `ClosestSearch` with any other search adapter
+- **Video display:** use `-vout` in UI mode to open an SDL3 window that shows matched
+  video segments in real-time alongside audio playback.
   in `main.cpp` (one-line swap). For `SynapticSearch` or `MarkovChainSearch`, call
   `brain.buildSynapses()` after loading all sounds.
 - **Recording output:** use `-r <path>` to record stream/infinite mode output to a
@@ -391,9 +392,6 @@ All parameters are designed to be bound to UI sliders/knobs:
 - **Live parameter control:** In stream/infinite mode, a WebSocket server starts on
   port 7770 automatically. Open `web/control-panel.html` in a browser and connect to
   `ws://localhost:7770` to control all SearchParams via sliders in real-time.
-- **Disabling video for iOS/library builds:** pass `-DBRAINIO_BUILD_VIDEO=OFF`; this
-  removes the avcpp/FFmpeg dependency entirely. Implement `IVideoSource` / `IVideoOutput`
-  natively in the host app instead.
 - **CLI examples:**
   ```sh
   ./brainio -i sounds/a.wav -t sounds/target.wav                    # batch (audio)

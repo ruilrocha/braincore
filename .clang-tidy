@@ -1,0 +1,32 @@
+---
+# brain-io clang-tidy configuration.
+
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  readability-*,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  cppcoreguidelines-avoid-goto,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-interfaces-global-init,
+  cppcoreguidelines-no-malloc,
+  cppcoreguidelines-pro-type-cstyle-cast,
+  cppcoreguidelines-slicing,
+  performance-*,
+  -performance-avoid-endl
+
+WarningsAsErrors: ""
+
+HeaderFilterRegex: "^src/"
+
+CheckOptions:
+  - key:   readability-identifier-length.MinimumVariableNameLength
+    value: "2"
+  - key:   readability-identifier-length.MinimumParameterNameLength
+    value: "2"
+  - key:   modernize-use-default-member-init.UseAssignment
+    value: "true"

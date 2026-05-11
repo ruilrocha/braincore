@@ -150,7 +150,7 @@ once (not per-filter).
 | **Infinite** | No target — generate endless evolving soundscapes by drifting through timbral space |
 | **UI** | Interactive mode with WebSocket control panel for live parameter tweaking |
 
-## Video Support (`BRAINIO_BUILD_VIDEO`)
+## Video Support
 
 brain-io can ingest video files as brain sources. The audio track is extracted and
 fed into the matching pipeline exactly like any other audio source — the similarity
@@ -172,8 +172,8 @@ timestamp.
 
 **IVideoOutput** (port) consumes output: called once per matched block with either
 the block's `VideoSegment` (video source) or `nullopt` (audio-only source → black
-frame). The Swift/iOS implementation uses AVFoundation to seek the player natively;
-the CLI implementation uses FFmpeg to write a remixed video file.
+frame). The CLI implementation uses FFmpeg to write a remixed video file or SDL3
+for real-time display.
 
 **FfmpegVideoSource** caches up to 4 simultaneously open `AVFormatContext` +
 `AVCodecContext` handles per path (LRU eviction), so repeated `readFrame()` calls
@@ -189,10 +189,10 @@ in `conandata.yml` as building from source is heavy):
 
 ```sh
 conan install --requires="ffmpeg/7.1.1" --output-folder=cmake-build-debug/conan/build/Debug --build=missing
-cmake -DBRAINIO_BUILD_VIDEO=ON ...
 ```
 
 **CLI usage:**
 ```sh
 ./brainio -v myvideo.mp4 -t sounds/target.wav
+./brainio ui -v myvideo.mp4 -vout           # UI mode with SDL3 display window
 ```

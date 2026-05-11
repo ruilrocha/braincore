@@ -12,7 +12,6 @@ namespace audio::port {
  *
  * Concrete adapters:
  *   - SdlVideoDisplay  — SDL3 window (desktop, CLI).
- *   - (future) MetalVideoDisplay — Metal / UIKit layer (iOS / macOS SwiftUI).
  *
  * Threading model:
  *   showFrame()         — safe to call from any thread (decoder thread).
@@ -55,4 +54,4 @@ public:
     [[nodiscard]] virtual bool isRunning() const = 0;
 };
 
-} // namespace audio::port
+}  // namespace audio::port

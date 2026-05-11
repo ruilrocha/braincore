@@ -1,0 +1,48 @@
+---
+# brain-io clang-format configuration.
+# Based on Google C++ Style with project-level overrides.
+
+BasedOnStyle: Google
+
+# Readability
+ColumnLimit: 100
+IndentWidth: 4
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+
+# Pointers / references
+PointerAlignment: Left
+DerivePointerAlignment: false
+ReferenceAlignment: Left
+
+# Braces
+BreakBeforeBraces: Attach
+
+# Includes
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Project headers first
+  - Regex:    '^"'
+    Priority: 1
+  # Then system / third-party
+  - Regex:    '^<'
+    Priority: 2
+
+# Line breaks
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# Alignment
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 1
+
+# Misc
+Cpp11BracedListStyle: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+Standard: Latest

@@ -30,8 +30,8 @@ public:
      * @param num_filters   Number of Mel filters in the bank.
      * @param mel_filter_width Width of each filter in Mel scale (default 200).
      */
-    MelFilterBank(double sample_rate, std::size_t fft_size,
-                  std::size_t num_filters = 24, double mel_filter_width = 200.0);
+    MelFilterBank(double sample_rate, std::size_t fft_size, std::size_t num_filters = 24,
+                  double mel_filter_width = 200.0);
 
     /**
      * Apply all filters to a pre-computed magnitude spectrum.
@@ -49,12 +49,8 @@ private:
     // Sparse matrix stored as per-filter lists of (bin, weight) pairs.
     std::vector<std::vector<MelWeight>> weights_;
 
-    static double linearToMel(double f) {
-        return 1127.01048 * std::log(1.0 + f / 700.0);
-    }
-    static double melToLinear(double m) {
-        return 700.0 * (std::exp(m / 1127.01048) - 1.0);
-    }
+    static double linearToMel(double f) { return 1127.01048 * std::log(1.0 + (f / 700.0)); }
+    static double melToLinear(double m) { return 700.0 * (std::exp(m / 1127.01048) - 1.0); }
 };
 
-} // namespace audio
+}  // namespace audio

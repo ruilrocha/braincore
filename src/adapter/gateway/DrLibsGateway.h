@@ -12,11 +12,9 @@ namespace audio::adapter::gateway {
  */
 class DrLibsGateway final : public port::ISoundFileGateway {
 public:
-    [[nodiscard]] std::unique_ptr<Sound> loadSound(
-        const std::string& path) override;
+    [[nodiscard]] std::unique_ptr<Sound> loadSound(const std::string& path) override;
 
-    bool saveSound(
-        const std::string& path, const Sound& sound) override;
+    bool saveSound(const std::string& path, const Sound& sound) override;
 };
 
-} // namespace audio::adapter::gateway
+}  // namespace audio::adapter::gateway

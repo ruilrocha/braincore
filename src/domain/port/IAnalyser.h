@@ -1,8 +1,8 @@
 #pragma once
 
-#include <vector>
-
 #include "../AudioPrint.h"
+
+#include <vector>
 
 namespace audio::port {
 
@@ -28,8 +28,8 @@ public:
      * @param sample_rate Sample rate in Hz.
      * @return            Fingerprint vector whose semantics are adapter-defined.
      */
-    [[nodiscard]] virtual std::vector<double> compute(
-        const std::vector<double>& block, int sample_rate) const = 0;
+    [[nodiscard]] virtual std::vector<double> compute(const std::vector<double>& block,
+                                                      int sample_rate) const = 0;
 
     /**
      * Analyse a block and produce the full AudioPrint at once.
@@ -38,8 +38,8 @@ public:
      * @param sample_rate Sample rate in Hz.
      * @return            An AudioPrint bundle (mfcc, spectral, dominant freq).
      */
-    [[nodiscard]] virtual AudioPrint analyse(
-        const std::vector<double>& block, int sample_rate) const = 0;
+    [[nodiscard]] virtual AudioPrint analyse(const std::vector<double>& block,
+                                             int sample_rate) const = 0;
 
     // ── Distance computation ───────────────────────────────────────────
 
@@ -47,9 +47,8 @@ public:
      * Distance between two fingerprint vectors (lower = more similar).
      * Used for quick single-vector comparisons (e.g. stickyness check).
      */
-    [[nodiscard]] virtual double distance(
-        const std::vector<double>& a,
-        const std::vector<double>& b) const = 0;
+    [[nodiscard]] virtual double distance(const std::vector<double>& a,
+                                          const std::vector<double>& b) const = 0;
 };
 
-} // namespace audio::port
+}  // namespace audio::port

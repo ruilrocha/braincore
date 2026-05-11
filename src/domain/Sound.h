@@ -39,9 +39,7 @@ public:
         return channels_.empty() ? 0 : static_cast<int>(channels_[0].size());
     }
 
-    [[nodiscard]] int getNumChannels() const {
-        return static_cast<int>(channels_.size());
-    }
+    [[nodiscard]] int getNumChannels() const { return static_cast<int>(channels_.size()); }
 
     [[nodiscard]] int getSampleRate() const { return sample_rate_; }
 
@@ -50,5 +48,4 @@ private:
     int sample_rate_;
 };
 
-} // namespace audio
-
+}  // namespace audio

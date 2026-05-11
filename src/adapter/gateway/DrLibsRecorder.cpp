@@ -42,7 +42,8 @@ bool DrLibsRecorder::open(const std::string& path, int sample_rate, int channels
 }
 
 void DrLibsRecorder::write(const std::vector<double>& samples) {
-    if (!impl_ || !impl_->open) return;
+    if (!impl_ || !impl_->open)
+        return;
 
     // Convert double to float for dr_wav.
     const auto frame_count = samples.size() / static_cast<std::size_t>(channels_);
@@ -66,7 +67,7 @@ void DrLibsRecorder::close() {
 }
 
 bool DrLibsRecorder::isOpen() const {
-    return impl_ && impl_->open;
+    return (impl_ != nullptr) && impl_->open;
 }
 
-} // namespace audio::adapter::gateway
+}  // namespace audio::adapter::gateway

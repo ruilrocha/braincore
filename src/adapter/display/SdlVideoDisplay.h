@@ -1,11 +1,11 @@
 #pragma once
 
+#include "../../domain/VideoFrame.h"
+#include "../../domain/port/IVideoDisplay.h"
+
 #include <atomic>
 #include <memory>
 #include <mutex>
-
-#include "../../domain/VideoFrame.h"
-#include "../../domain/port/IVideoDisplay.h"
 
 // Forward-declare SDL types to keep the header SDL-free.
 struct SDL_Window;
@@ -58,15 +58,15 @@ private:
     int width_;
     int height_;
 
-    SDL_Window*   window_   = nullptr;
+    SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
-    SDL_Texture*  texture_  = nullptr;
+    SDL_Texture* texture_ = nullptr;
 
-    mutable std::mutex          frame_mutex_;
+    mutable std::mutex frame_mutex_;
     std::shared_ptr<VideoFrame> latest_frame_;
 
     std::atomic<bool> running_{true};
     std::atomic<bool> sdl_destroyed_{false};
 };
 
-} // namespace audio::adapter::display
+}  // namespace audio::adapter::display

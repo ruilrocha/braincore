@@ -78,8 +78,7 @@ Domain  ←──  Use-Cases  ←──  Adapters  ←──  main.cpp
 | `brainio-io` | DrLibsGateway, DrLibsRecorder | dr_libs (header-only) |
 | `brainio-playback` | MiniaudioOutput | miniaudio, readerwriterqueue |
 | `brainio-ui` | WebSocketParamController | ixwebsocket |
-| `brainio-video` | FfmpegVideoSource, FfmpegVideoOutput | avcpp, FFmpeg (optional) |
-| `brainio-capi` | C API (brainio.h) | core + fft |
+| `brainio-video` | FfmpegVideoSource, FfmpegVideoOutput | avcpp, FFmpeg |
 | `brainio` | CLI executable | all of the above |
 
 ## Data Flow

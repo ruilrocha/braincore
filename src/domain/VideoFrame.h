@@ -12,7 +12,7 @@ namespace audio {
  * Total size: width * height * 3 bytes.
  */
 struct VideoFrame {
-    int width  = 0;
+    int width = 0;
     int height = 0;
 
     /// RGB24 pixel data, row-major. Size = width * height * 3.
@@ -26,11 +26,11 @@ struct VideoFrame {
     /// Create a black (zeroed) frame of the given dimensions.
     static VideoFrame black(int w, int h) {
         VideoFrame f;
-        f.width  = w;
+        f.width = w;
         f.height = h;
         f.pixels.assign(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3, 0);
         return f;
     }
 };
 
-} // namespace audio
+}  // namespace audio

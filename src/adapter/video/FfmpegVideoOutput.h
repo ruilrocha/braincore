@@ -1,11 +1,11 @@
 #pragma once
 
+#include "../../domain/port/IVideoOutput.h"
+#include "../../domain/port/IVideoSource.h"
+
 #include <memory>
 #include <optional>
 #include <string>
-
-#include "../../domain/port/IVideoOutput.h"
-#include "../../domain/port/IVideoSource.h"
 
 namespace audio::adapter::video {
 
@@ -21,8 +21,7 @@ namespace audio::adapter::video {
  */
 class FfmpegVideoOutput final : public port::IVideoOutput {
 public:
-    FfmpegVideoOutput(std::shared_ptr<port::IVideoSource> source,
-                      std::string output_path,
+    FfmpegVideoOutput(std::shared_ptr<port::IVideoSource> source, std::string output_path,
                       int width = 1280, int height = 720, double fps = 25.0);
 
     ~FfmpegVideoOutput() override;
@@ -30,8 +29,7 @@ public:
     FfmpegVideoOutput(const FfmpegVideoOutput&) = delete;
     FfmpegVideoOutput& operator=(const FfmpegVideoOutput&) = delete;
 
-    void onBlock(const std::optional<VideoSegment>& segment,
-                 double duration_sec) override;
+    void onBlock(const std::optional<VideoSegment>& segment, double duration_sec) override;
 
     void close() override;
 
@@ -40,4 +38,4 @@ private:
     std::unique_ptr<Impl> pimpl_;
 };
 
-} // namespace audio::adapter::video
+}  // namespace audio::adapter::video

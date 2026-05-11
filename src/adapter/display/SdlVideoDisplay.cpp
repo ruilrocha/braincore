@@ -1,27 +1,22 @@
 #include "SdlVideoDisplay.h"
 
+#include <SDL3/SDL.h>
 #include <format>
 #include <iostream>
-
-#include <SDL3/SDL.h>
 
 namespace audio::adapter::display {
 
 // ── Constructor ─────────────────────────────────────────────────────────────
 
-SdlVideoDisplay::SdlVideoDisplay(int width, int height)
-    : width_(width), height_(height)
-{
+SdlVideoDisplay::SdlVideoDisplay(int width, int height) : width_(width), height_(height) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         std::cerr << std::format("SDL_Init error: {}\n", SDL_GetError());
         running_ = false;
         return;
     }
 
-    window_ = SDL_CreateWindow("brain-io video",
-                                width_, height_,
-                                SDL_WINDOW_RESIZABLE);
-    if (!window_) {
+    window_ = SDL_CreateWindow("brain-io video", width_, height_, SDL_WINDOW_RESIZABLE);
+    if (window_ == nullptr) {
         std::cerr << std::format("SDL_CreateWindow error: {}\n", SDL_GetError());
         running_ = false;
         SDL_Quit();
@@ -29,7 +24,7 @@ SdlVideoDisplay::SdlVideoDisplay(int width, int height)
     }
 
     renderer_ = SDL_CreateRenderer(window_, nullptr);
-    if (!renderer_) {
+    if (renderer_ == nullptr) {
         std::cerr << std::format("SDL_CreateRenderer error: {}\n", SDL_GetError());
         SDL_DestroyWindow(window_);
         window_ = nullptr;
@@ -42,17 +37,15 @@ SdlVideoDisplay::SdlVideoDisplay(int width, int height)
     SDL_SetRenderLogicalPresentation(renderer_, width_, height_,
                                      SDL_LOGICAL_PRESENTATION_LETTERBOX);
 
-    texture_ = SDL_CreateTexture(renderer_,
-                                  SDL_PIXELFORMAT_RGB24,
-                                  SDL_TEXTUREACCESS_STREAMING,
-                                  width_, height_);
-    if (!texture_) {
+    texture_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING,
+                                 width_, height_);
+    if (texture_ == nullptr) {
         std::cerr << std::format("SDL_CreateTexture error: {}\n", SDL_GetError());
         SDL_DestroyRenderer(renderer_);
         SDL_DestroyWindow(window_);
         renderer_ = nullptr;
-        window_   = nullptr;
-        running_  = false;
+        window_ = nullptr;
+        running_ = false;
         SDL_Quit();
     }
 }
@@ -68,7 +61,7 @@ SdlVideoDisplay::~SdlVideoDisplay() {
 
 void SdlVideoDisplay::showFrame(VideoFrame frame) {
     auto ptr = std::make_shared<VideoFrame>(std::move(frame));
-    std::lock_guard lock(frame_mutex_);
+    std::scoped_lock lock(frame_mutex_);
     latest_frame_ = std::move(ptr);
 }
 
@@ -80,12 +73,14 @@ bool SdlVideoDisplay::renderLatestFrame() {
         return false;
     }
 
-    if (!renderer_ || !texture_) return false;
+    if (renderer_ == nullptr || texture_ == nullptr) {
+        return false;
+    }
 
     // Grab latest frame (short critical section).
     std::shared_ptr<VideoFrame> frame;
     {
-        std::lock_guard lock(frame_mutex_);
+        std::scoped_lock lock(frame_mutex_);
         frame = latest_frame_;
     }
 
@@ -93,19 +88,18 @@ bool SdlVideoDisplay::renderLatestFrame() {
         // Recreate texture if frame dimensions changed.
         if (frame->width != width_ || frame->height != height_) {
             SDL_DestroyTexture(texture_);
-            width_  = frame->width;
+            width_ = frame->width;
             height_ = frame->height;
             SDL_SetRenderLogicalPresentation(renderer_, width_, height_,
                                              SDL_LOGICAL_PRESENTATION_LETTERBOX);
-            texture_ = SDL_CreateTexture(renderer_,
-                                          SDL_PIXELFORMAT_RGB24,
-                                          SDL_TEXTUREACCESS_STREAMING,
-                                          width_, height_);
-            if (!texture_) return false;
+            texture_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGB24,
+                                         SDL_TEXTUREACCESS_STREAMING, width_, height_);
+            if (texture_ == nullptr) {
+                return false;
+            }
         }
 
-        SDL_UpdateTexture(texture_, nullptr,
-                          frame->pixels.data(),
+        SDL_UpdateTexture(texture_, nullptr, frame->pixels.data(),
                           frame->width * 3);  // pitch = width * 3 (RGB24)
         SDL_RenderClear(renderer_);
         SDL_RenderTexture(renderer_, texture_, nullptr, nullptr);
@@ -129,13 +123,24 @@ void SdlVideoDisplay::close() {
 // ── destroySdl (main thread only) ────────────────────────────────────────────
 
 void SdlVideoDisplay::destroySdl() {
-    if (sdl_destroyed_.exchange(true)) return;   // guard against double-destroy
+    if (sdl_destroyed_.exchange(true)) {
+        return;  // guard against double-destroy
+    }
 
-    if (texture_)  { SDL_DestroyTexture(texture_);   texture_  = nullptr; }
-    if (renderer_) { SDL_DestroyRenderer(renderer_); renderer_ = nullptr; }
-    if (window_)   { SDL_DestroyWindow(window_);     window_   = nullptr; }
+    if (texture_ != nullptr) {
+        SDL_DestroyTexture(texture_);
+        texture_ = nullptr;
+    }
+    if (renderer_ != nullptr) {
+        SDL_DestroyRenderer(renderer_);
+        renderer_ = nullptr;
+    }
+    if (window_ != nullptr) {
+        SDL_DestroyWindow(window_);
+        window_ = nullptr;
+    }
 
     SDL_Quit();
 }
 
-} // namespace audio::adapter::display
+}  // namespace audio::adapter::display

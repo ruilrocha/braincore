@@ -35,4 +35,4 @@ struct VideoMetadata {
     double start_offset_seconds = 0.0;
 };
 
-} // namespace audio
+}  // namespace audio

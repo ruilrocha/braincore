@@ -1,8 +1,8 @@
 #pragma once
 
-#include <optional>
-
 #include "../VideoSegment.h"
+
+#include <optional>
 
 namespace audio::port {
 
@@ -14,7 +14,7 @@ namespace audio::port {
  * and the implementation should render a black frame.
  *
  * The CLI adapter (FfmpegVideoOutput) writes frames to a video file.
- * A Swift application would implement this natively using AVFoundation/AVPlayer.
+ * The display adapter (VideoDisplayOutput + SdlVideoDisplay) renders frames in real-time.
  */
 class IVideoOutput {
 public:
@@ -27,8 +27,7 @@ public:
      *                       or nullopt if the block has no video source.
      * @param duration_sec   Duration of the audio block in seconds.
      */
-    virtual void onBlock(const std::optional<VideoSegment>& segment,
-                         double duration_sec) = 0;
+    virtual void onBlock(const std::optional<VideoSegment>& segment, double duration_sec) = 0;
 
     /**
      * Finalise and close the output (flush buffers, write trailers, etc.).
@@ -37,4 +36,4 @@ public:
     virtual void close() = 0;
 };
 
-} // namespace audio::port
+}  // namespace audio::port

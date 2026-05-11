@@ -3,37 +3,15 @@ project(brainio)
 
 set(CMAKE_CXX_STANDARD 23)
 
-# ── Build options ───────────────────────────────────────────────────────
-option(BRAINIO_BUILD_IO       "Build audio file I/O adapter (dr_libs)" ON)
-option(BRAINIO_BUILD_PLAYBACK "Build miniaudio playback adapter"       ON)
-option(BRAINIO_BUILD_UI       "Build WebSocket UI layer"               ON)
-option(BRAINIO_BUILD_VIDEO    "Build video I/O adapter (FFmpeg)"       ON)
-option(BRAINIO_BUILD_DISPLAY  "Build real-time SDL2 video display"     OFF)
-option(BRAINIO_BUILD_CLI      "Build CLI executable"                   ON)
-
 # ── Find packages ──────────────────────────────────────────────────────
 find_package(pocketfft REQUIRED)
-
-if(BRAINIO_BUILD_IO)
-    find_package(dr_libs REQUIRED)
-endif()
-
-if(BRAINIO_BUILD_PLAYBACK)
-    find_package(miniaudio REQUIRED)
-    find_package(readerwriterqueue REQUIRED)
-endif()
-
-if(BRAINIO_BUILD_UI)
-    find_package(ixwebsocket REQUIRED)
-endif()
-
-if(BRAINIO_BUILD_VIDEO)
-    find_package(avcpp REQUIRED)
-endif()
-
-if(BRAINIO_BUILD_DISPLAY)
-    find_package(SDL3 REQUIRED)
-endif()
+find_package(dr_libs REQUIRED)
+find_package(miniaudio REQUIRED)
+find_package(readerwriterqueue REQUIRED)
+find_package(ixwebsocket REQUIRED)
+find_package(avcpp REQUIRED)
+find_package(SDL3 REQUIRED)
+find_package(GTest REQUIRED)
 
 # ═══════════════════════════════════════════════════════════════════════
 # brainio-core  (domain + usecase + aquila — zero external deps)
@@ -54,137 +32,138 @@ target_include_directories(brainio-core PUBLIC
 )
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-fft  (PocketFFT adapter — always needed for analysis)
+# brainio-fft  (PocketFFT adapter)
 # ═══════════════════════════════════════════════════════════════════════
 add_library(brainio-fft STATIC src/adapter/fft/PocketfftBackend.cpp)
 target_link_libraries(brainio-fft PUBLIC brainio-core pocketfft::pocketfft)
 target_include_directories(brainio-fft PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-io  (File I/O adapter — optional, uses dr_libs)
+# brainio-io  (File I/O — dr_libs)
 # ═══════════════════════════════════════════════════════════════════════
-if(BRAINIO_BUILD_IO)
-    add_library(brainio-io STATIC
-        src/adapter/gateway/DrLibsGateway.cpp
-        src/adapter/gateway/DrLibsRecorder.cpp)
-    target_link_libraries(brainio-io PUBLIC brainio-core dr_libs::dr_libs)
-    target_include_directories(brainio-io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-endif()
+add_library(brainio-io STATIC
+    src/adapter/gateway/DrLibsGateway.cpp
+    src/adapter/gateway/DrLibsRecorder.cpp)
+target_link_libraries(brainio-io PUBLIC brainio-core dr_libs::dr_libs)
+target_include_directories(brainio-io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-playback  (Audio output — optional)
+# brainio-playback  (Audio output — miniaudio)
 # ═══════════════════════════════════════════════════════════════════════
-if(BRAINIO_BUILD_PLAYBACK)
-    add_library(brainio-playback STATIC src/adapter/playback/MiniaudioOutput.cpp)
-    target_include_directories(brainio-playback PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(brainio-playback PUBLIC
-        brainio-core miniaudio::miniaudio readerwriterqueue::readerwriterqueue)
-    target_compile_definitions(brainio-playback PUBLIC BRAINIO_HAS_PLAYBACK)
-endif()
+add_library(brainio-playback STATIC src/adapter/playback/MiniaudioOutput.cpp)
+target_include_directories(brainio-playback PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(brainio-playback PUBLIC
+    brainio-core miniaudio::miniaudio readerwriterqueue::readerwriterqueue)
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-ui  (WebSocket control — optional)
+# brainio-ui  (WebSocket control — ixwebsocket)
 # ═══════════════════════════════════════════════════════════════════════
-if(BRAINIO_BUILD_UI)
-    add_library(brainio-ui STATIC src/adapter/control/WebSocketParamController.cpp)
-    target_include_directories(brainio-ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(brainio-ui PUBLIC brainio-core ixwebsocket::ixwebsocket)
-    target_compile_definitions(brainio-ui PUBLIC BRAINIO_HAS_UI)
-endif()
+add_library(brainio-ui STATIC src/adapter/control/WebSocketParamController.cpp)
+target_include_directories(brainio-ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(brainio-ui PUBLIC brainio-core ixwebsocket::ixwebsocket)
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-video  (Video I/O — optional, uses avcpp + FFmpeg)
+# brainio-video  (Video I/O — avcpp + FFmpeg)
 # ═══════════════════════════════════════════════════════════════════════
-if(BRAINIO_BUILD_VIDEO)
-    add_library(brainio-video STATIC
-        src/adapter/video/FfmpegVideoSource.cpp
-        src/adapter/video/FfmpegVideoOutput.cpp)
-    target_include_directories(brainio-video PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(brainio-video PUBLIC
-        brainio-core
-        avcpp::avcpp)
-    target_compile_definitions(brainio-video PUBLIC BRAINIO_HAS_VIDEO)
-endif()
+add_library(brainio-video STATIC
+    src/adapter/video/FfmpegVideoSource.cpp
+    src/adapter/video/FfmpegVideoOutput.cpp)
+target_include_directories(brainio-video PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(brainio-video PUBLIC brainio-core avcpp::avcpp)
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-display  (Real-time SDL2 video display — optional)
+# brainio-display  (Real-time SDL3 video display)
 # ═══════════════════════════════════════════════════════════════════════
-if(BRAINIO_BUILD_DISPLAY)
-    add_library(brainio-display STATIC
-        src/adapter/display/SdlVideoDisplay.cpp
-        src/adapter/display/VideoDisplayOutput.cpp)
-    target_include_directories(brainio-display PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(brainio-display PUBLIC
-        brainio-core
-        SDL3::SDL3
-        readerwriterqueue::readerwriterqueue)
-    target_compile_definitions(brainio-display PUBLIC BRAINIO_HAS_DISPLAY)
-endif()
+add_library(brainio-display STATIC
+    src/adapter/display/SdlVideoDisplay.cpp
+    src/adapter/display/VideoDisplayOutput.cpp)
+target_include_directories(brainio-display PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(brainio-display PUBLIC
+    brainio-core
+    SDL3::SDL3
+    readerwriterqueue::readerwriterqueue)
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-capi  (C-compatible API for XCFramework / Swift consumption)
+# brainio  (CLI executable)
 # ═══════════════════════════════════════════════════════════════════════
-add_library(brainio-capi STATIC
-    include/brainio.cpp
+add_executable(brainio
+    src/main.cpp
     src/adapter/analysis/MfccAnalyser.cpp
     src/adapter/search/ClosestSearch.cpp
+    src/adapter/search/SynapticSearch.cpp
+    src/adapter/search/MarkovChainSearch.cpp
+    src/adapter/search/MomentumSearch.cpp
+    src/adapter/effects/FftwSpectralMorph.cpp
 )
-target_include_directories(brainio-capi PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+
+target_compile_definitions(brainio PRIVATE
+    PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
 )
-target_link_libraries(brainio-capi PUBLIC brainio-core brainio-fft)
 
-# ═══════════════════════════════════════════════════════════════════════
-# brainio  (CLI executable — optional)
-# ═══════════════════════════════════════════════════════════════════════
-if(BRAINIO_BUILD_CLI)
-    add_executable(brainio
-        src/main.cpp
-        src/adapter/analysis/MfccAnalyser.cpp
-        src/adapter/search/ClosestSearch.cpp
-        src/adapter/search/SynapticSearch.cpp
-        src/adapter/search/MarkovChainSearch.cpp
-        src/adapter/search/MomentumSearch.cpp
-        src/adapter/effects/FftwSpectralMorph.cpp
-    )
+target_link_libraries(brainio PRIVATE
+    brainio-core
+    brainio-fft
+    brainio-io
+    brainio-playback
+    brainio-ui
+    brainio-video
+    brainio-display
+)
 
-    target_compile_definitions(brainio PRIVATE PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
-
-    target_link_libraries(brainio PRIVATE brainio-core brainio-fft)
-
-    if(BRAINIO_BUILD_IO)
-        target_link_libraries(brainio PRIVATE brainio-io)
-    endif()
-
-    if(BRAINIO_BUILD_PLAYBACK)
-        target_link_libraries(brainio PRIVATE brainio-playback)
-    endif()
-
-    if(BRAINIO_BUILD_UI)
-        target_link_libraries(brainio PRIVATE brainio-ui)
-    endif()
-
-    if(BRAINIO_BUILD_VIDEO)
-        target_link_libraries(brainio PRIVATE brainio-video)
-        target_compile_definitions(brainio PRIVATE BRAINIO_HAS_VIDEO)
-    endif()
-
-    if(BRAINIO_BUILD_DISPLAY)
-        target_link_libraries(brainio PRIVATE brainio-display)
-        target_compile_definitions(brainio PRIVATE BRAINIO_HAS_DISPLAY)
-    endif()
-
-    # Platform-specific libs.
-    if(UNIX AND NOT APPLE)
-        find_package(Threads REQUIRED)
-        target_link_libraries(brainio PRIVATE Threads::Threads dl m)
-    endif()
-
-    # Suppress "ignoring duplicate libraries" warning introduced by avcpp pulling
-    # libc++ through multiple transitive paths on Apple platforms.
-    if(APPLE)
-        target_link_options(brainio PRIVATE "-Wl,-no_warn_duplicate_libraries")
-    endif()
+# Platform-specific libs.
+if(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(brainio PRIVATE Threads::Threads dl m)
 endif()
 
+# Suppress "ignoring duplicate libraries" warning on Apple platforms.
+if(APPLE)
+    target_link_options(brainio PRIVATE "-Wl,-no_warn_duplicate_libraries")
+endif()
+
+# ═══════════════════════════════════════════════════════════════════════
+# brainio-tests  (Google Test unit tests)
+# ═══════════════════════════════════════════════════════════════════════
+enable_testing()
+
+file(GLOB_RECURSE TEST_SOURCES "tests/**/*.cpp")
+add_executable(brainio-tests ${TEST_SOURCES})
+target_include_directories(brainio-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(brainio-tests PRIVATE
+    brainio-core
+    brainio-fft
+    GTest::gtest_main
+)
+
+# ClosestSearch is part of the adapter layer — compile it directly into the test binary.
+target_sources(brainio-tests PRIVATE
+    src/adapter/search/ClosestSearch.cpp
+)
+include(GoogleTest)
+gtest_discover_tests(brainio-tests)
+
+# ═══════════════════════════════════════════════════════════════════════
+# format  (auto-format all project sources with clang-format)
+# Usage: cmake --build --preset conan-debug --target format
+# ═══════════════════════════════════════════════════════════════════════
+find_program(CLANG_FORMAT_EXE NAMES clang-format)
+
+if(CLANG_FORMAT_EXE)
+    file(GLOB_RECURSE FORMAT_SOURCES
+        "${CMAKE_SOURCE_DIR}/src/*.cpp"
+        "${CMAKE_SOURCE_DIR}/src/*.h"
+        "${CMAKE_SOURCE_DIR}/tests/*.cpp"
+        "${CMAKE_SOURCE_DIR}/tests/*.h"
+    )
+
+    add_custom_target(format
+        COMMAND ${CLANG_FORMAT_EXE} -i ${FORMAT_SOURCES}
+        COMMENT "clang-format: formatting ${CMAKE_SOURCE_DIR}/src and tests/"
+        VERBATIM
+    )
+else()
+    add_custom_target(format
+        COMMAND ${CMAKE_COMMAND} -E echo "clang-format not found — install it and re-run cmake."
+        COMMENT "clang-format not available"
+    )
+endif()

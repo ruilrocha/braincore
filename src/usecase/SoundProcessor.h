@@ -1,13 +1,13 @@
 #pragma once
 
-#include <memory>
-
 #include "../domain/BlockConfig.h"
 #include "../domain/Brain.h"
 #include "../domain/SearchParams.h"
 #include "../domain/Sound.h"
 #include "../domain/port/IBlockEffect.h"
 #include "../domain/port/IVideoOutput.h"
+
+#include <memory>
 
 namespace audio::usecase {
 
@@ -33,19 +33,17 @@ public:
      * @param spectral_morph Optional spectral morph effect adapter.
      * @param video_output   Optional video output consumer.
      */
-    explicit SoundProcessor(const SearchParams &params = {},
-                            BlockConfig  target_config = {},
-                            std::shared_ptr<port::IBlockEffect>  spectral_morph = nullptr,
-                            std::shared_ptr<port::IVideoOutput>  video_output   = nullptr);
+    explicit SoundProcessor(const SearchParams& params = {}, BlockConfig target_config = {},
+                            std::shared_ptr<port::IBlockEffect> spectral_morph = nullptr,
+                            std::shared_ptr<port::IVideoOutput> video_output = nullptr);
 
     [[nodiscard]] Sound process(Brain& brain, const Sound& target) const;
 
 private:
     SearchParams params_;
-    BlockConfig  target_config_;
-    std::shared_ptr<port::IBlockEffect>  spectral_morph_;
-    std::shared_ptr<port::IVideoOutput>  video_output_;
+    BlockConfig target_config_;
+    std::shared_ptr<port::IBlockEffect> spectral_morph_;
+    std::shared_ptr<port::IVideoOutput> video_output_;
 };
 
-} // namespace audio::usecase
-
+}  // namespace audio::usecase

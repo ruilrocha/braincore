@@ -14,13 +14,10 @@ namespace audio::adapter::search {
  */
 class ClosestSearch final : public port::ISearchStrategy {
 public:
-    [[nodiscard]] std::size_t search(
-        const std::vector<double>& target_fp,
-        std::vector<Block>& blocks,
-        const port::IAnalyser& analyser,
-        const SearchParams& params,
-        std::size_t current_block_index) const override;
+    [[nodiscard]] std::size_t search(const std::vector<double>& target_fp,
+                                     std::vector<Block>& blocks, const port::IAnalyser& analyser,
+                                     const SearchParams& params,
+                                     std::size_t current_block_index) const override;
 };
 
-} // namespace audio::adapter::search
-
+}  // namespace audio::adapter::search

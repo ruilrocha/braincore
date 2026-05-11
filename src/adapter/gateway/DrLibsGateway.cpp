@@ -26,13 +26,19 @@ AudioFormat detectFormat(const std::string& path) {
     auto ext = std::filesystem::path(path).extension().string();
     std::ranges::transform(ext, ext.begin(), ::tolower);
 
-    if (ext == ".wav" || ext == ".wave") return AudioFormat::Wav;
-    if (ext == ".flac") return AudioFormat::Flac;
-    if (ext == ".mp3") return AudioFormat::Mp3;
+    if (ext == ".wav" || ext == ".wave") {
+        return AudioFormat::Wav;
+    }
+    if (ext == ".flac") {
+        return AudioFormat::Flac;
+    }
+    if (ext == ".mp3") {
+        return AudioFormat::Mp3;
+    }
     return AudioFormat::Unknown;
 }
 
-} // namespace
+}  // namespace
 
 std::unique_ptr<Sound> DrLibsGateway::loadSound(const std::string& path) {
     const auto format = detectFormat(path);
@@ -55,9 +61,9 @@ std::unique_ptr<Sound> DrLibsGateway::loadSound(const std::string& path) {
         }
         case AudioFormat::Mp3: {
             drmp3_config config{};
-            float_data = drmp3_open_file_and_read_pcm_frames_f32(
-                path.c_str(), &config, &total_frames, nullptr);
-            if (float_data) {
+            float_data = drmp3_open_file_and_read_pcm_frames_f32(path.c_str(), &config,
+                                                                 &total_frames, nullptr);
+            if (float_data != nullptr) {
                 channels = config.channels;
                 sample_rate = config.sampleRate;
             }
@@ -69,7 +75,7 @@ std::unique_ptr<Sound> DrLibsGateway::loadSound(const std::string& path) {
         }
     }
 
-    if (!float_data) {
+    if (float_data == nullptr) {
         std::cerr << "DrLibsGateway: failed to load " << path << '\n';
         return nullptr;
     }
@@ -81,15 +87,13 @@ std::unique_ptr<Sound> DrLibsGateway::loadSound(const std::string& path) {
 
     for (std::size_t i = 0; i < num_frames; ++i) {
         for (std::size_t ch = 0; ch < num_ch; ++ch) {
-            channel_data[ch][i] = static_cast<double>(
-                float_data[i * num_ch + ch]);
+            channel_data[ch][i] = static_cast<double>(float_data[(i * num_ch) + ch]);
         }
     }
 
     drwav_free(float_data, nullptr);
 
-    return std::make_unique<Sound>(
-        std::move(channel_data), static_cast<int>(sample_rate));
+    return std::make_unique<Sound>(std::move(channel_data), static_cast<int>(sample_rate));
 }
 
 bool DrLibsGateway::saveSound(const std::string& path, const Sound& sound) {
@@ -101,8 +105,7 @@ bool DrLibsGateway::saveSound(const std::string& path, const Sound& sound) {
     format.bitsPerSample = 32;
 
     drwav wav;
-    if (!drwav_init_file_write(
-            &wav, path.c_str(), &format, nullptr)) {
+    if (drwav_init_file_write(&wav, path.c_str(), &format, nullptr) == 0U) {
         std::cerr << "DrLibsGateway: failed to create " << path << '\n';
         return false;
     }
@@ -115,14 +118,13 @@ bool DrLibsGateway::saveSound(const std::string& path, const Sound& sound) {
 
     for (std::size_t i = 0; i < frames; ++i) {
         for (std::size_t ch = 0; ch < num_ch; ++ch) {
-            interleaved[i * num_ch + ch] = static_cast<float>(channels[ch][i]);
+            interleaved[(i * num_ch) + ch] = static_cast<float>(channels[ch][i]);
         }
     }
 
-    drwav_write_pcm_frames(&wav, frames,
-                           interleaved.data());
+    drwav_write_pcm_frames(&wav, frames, interleaved.data());
     drwav_uninit(&wav);
     return true;
 }
 
-} // namespace audio::adapter::gateway
+}  // namespace audio::adapter::gateway

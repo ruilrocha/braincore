@@ -1,10 +1,10 @@
 #pragma once
 
+#include "VideoSegment.h"
+
 #include <optional>
 #include <string>
 #include <vector>
-
-#include "VideoSegment.h"
 
 namespace audio {
 
@@ -64,4 +64,4 @@ struct Block {
     std::vector<std::size_t> synapses;
 };
 
-} // namespace audio
+}  // namespace audio

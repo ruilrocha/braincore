@@ -1,16 +1,15 @@
 #pragma once
 
-#include <atomic>
-#include <memory>
-#include <optional>
-#include <thread>
-
-#include <readerwriterqueue/readerwriterqueue.h>
-
 #include "../../domain/VideoSegment.h"
 #include "../../domain/port/IVideoDisplay.h"
 #include "../../domain/port/IVideoOutput.h"
 #include "../../domain/port/IVideoSource.h"
+
+#include <atomic>
+#include <memory>
+#include <optional>
+#include <readerwriterqueue/readerwriterqueue.h>
+#include <thread>
 
 namespace audio::adapter::display {
 
@@ -45,8 +44,7 @@ public:
 
     /// Non-blocking: enqueues the segment into the SPSC queue.
     /// If the queue is full the block is dropped (audio thread never stalls).
-    void onBlock(const std::optional<VideoSegment>& segment,
-                 double duration_sec) override;
+    void onBlock(const std::optional<VideoSegment>& segment, double duration_sec) override;
 
     /// Signal shutdown and join the decoder thread.
     /// Safe to call from any thread.
@@ -60,13 +58,13 @@ private:
 
     void decoderLoop();
 
-    std::shared_ptr<port::IVideoSource>  source_;
+    std::shared_ptr<port::IVideoSource> source_;
     std::shared_ptr<port::IVideoDisplay> display_;
 
     moodycamel::ReaderWriterQueue<BlockCmd> block_queue_;
 
-    std::thread       decoder_thread_;
+    std::thread decoder_thread_;
     std::atomic<bool> running_{true};
 };
 
-} // namespace audio::adapter::display
+}  // namespace audio::adapter::display

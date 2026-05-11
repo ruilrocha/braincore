@@ -1,12 +1,12 @@
 #pragma once
 
-#include <memory>
-#include <optional>
-#include <string>
-
 #include "../Sound.h"
 #include "../VideoFrame.h"
 #include "../VideoSegment.h"
+
+#include <memory>
+#include <optional>
+#include <string>
 
 namespace audio::port {
 
@@ -19,7 +19,6 @@ namespace audio::port {
  *   - Report video file metadata (dimensions, fps, duration).
  *
  * The CLI adapter uses FFmpeg (libavformat + libavcodec + libswscale).
- * A Swift application would implement this natively via AVFoundation.
  */
 class IVideoSource {
 public:
@@ -43,8 +42,7 @@ public:
      * @param duration_seconds  Output: total duration.
      * @return true on success, false if the file cannot be opened.
      */
-    [[nodiscard]] virtual bool getInfo(const std::string& path,
-                                       int& width, int& height,
+    [[nodiscard]] virtual bool getInfo(const std::string& path, int& width, int& height,
                                        double& fps, double& duration_seconds) = 0;
 
     /**
@@ -57,8 +55,8 @@ public:
      * @param time_seconds  Desired presentation time.
      * @return Decoded frame (RGB24), or nullopt on failure.
      */
-    [[nodiscard]] virtual std::optional<VideoFrame> readFrame(
-        const std::string& path, double time_seconds) = 0;
+    [[nodiscard]] virtual std::optional<VideoFrame> readFrame(const std::string& path,
+                                                              double time_seconds) = 0;
 
     /**
      * Decode all video frames whose PTS falls in [start_seconds, end_seconds).
@@ -72,8 +70,9 @@ public:
      * @param end_seconds    End of the time window (exclusive).
      * @return Vector of decoded RGB24 frames (may be empty on EOF/error).
      */
-    [[nodiscard]] virtual std::vector<VideoFrame> readSegment(
-        const std::string& path, double start_seconds, double end_seconds) = 0;
+    [[nodiscard]] virtual std::vector<VideoFrame> readSegment(const std::string& path,
+                                                              double start_seconds,
+                                                              double end_seconds) = 0;
 };
 
-} // namespace audio::port
+}  // namespace audio::port

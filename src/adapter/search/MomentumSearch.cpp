@@ -1,20 +1,18 @@
 #include "MomentumSearch.h"
 
-#include <limits>
-
-#include "SearchUtils.h"
 #include "../../domain/port/IAnalyser.h"
+#include "SearchUtils.h"
+
+#include <limits>
 
 namespace audio::adapter::search {
 
-std::size_t MomentumSearch::search(
-    const std::vector<double>& target_fp,
-    std::vector<Block>& blocks,
-    const port::IAnalyser& analyser,
-    const SearchParams& params,
-    const std::size_t current_block_index) const {
-
-    if (blocks.empty()) return 0;
+std::size_t MomentumSearch::search(const std::vector<double>& target_fp, std::vector<Block>& blocks,
+                                   const port::IAnalyser& analyser, const SearchParams& params,
+                                   const std::size_t current_block_index) const {
+    if (blocks.empty()) {
+        return 0;
+    }
 
     const auto& current_fp = blocks[current_block_index].mfcc;
     const double mom = std::clamp(params.momentum, 0.0, 1.0);
@@ -29,7 +27,7 @@ std::size_t MomentumSearch::search(
         for (std::size_t i = 0; i < current_fp.size(); ++i) {
             const double delta = current_fp[i] - prev_fp_[i];
             // Exponential moving average: blend old velocity with new delta.
-            velocity_[i] = velocity_[i] * decay + delta * (1.0 - decay);
+            velocity_[i] = (velocity_[i] * decay) + (delta * (1.0 - decay));
         }
     } else {
         // First call — initialise.
@@ -43,9 +41,9 @@ std::size_t MomentumSearch::search(
     std::vector<double> search_target(target_fp.size());
     for (std::size_t i = 0; i < target_fp.size(); ++i) {
         const double predicted = (i < current_fp.size())
-            ? current_fp[i] + ((i < velocity_.size()) ? velocity_[i] : 0.0)
-            : target_fp[i];
-        search_target[i] = target_fp[i] * (1.0 - mom) + predicted * mom;
+                                     ? current_fp[i] + ((i < velocity_.size()) ? velocity_[i] : 0.0)
+                                     : target_fp[i];
+        search_target[i] = (target_fp[i] * (1.0 - mom)) + (predicted * mom);
     }
 
     // ── Find the closest block to the blended search target ────────────────
@@ -57,16 +55,14 @@ std::size_t MomentumSearch::search(
         score += blocks[i].usage * params.usage_weight;
         if (score < best_score) {
             best_score = score;
-            best_idx   = i;
+            best_idx = i;
         }
     }
 
     SearchUtils::applyUsage(blocks, best_idx, params.usage_falloff);
 
-    return SearchUtils::stickify(search_target, blocks, analyser,
-                                 best_idx, best_score, current_block_index,
-                                 params.stickyness);
+    return SearchUtils::stickify(search_target, blocks, analyser, best_idx, best_score,
+                                 current_block_index, params.stickyness);
 }
 
-} // namespace audio::adapter::search
-
+}  // namespace audio::adapter::search

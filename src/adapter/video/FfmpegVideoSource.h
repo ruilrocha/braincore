@@ -1,10 +1,10 @@
 #pragma once
 
+#include "../../domain/port/IVideoSource.h"
+
 #include <memory>
 #include <optional>
 #include <string>
-
-#include "../../domain/port/IVideoSource.h"
 
 namespace audio::adapter::video {
 
@@ -25,19 +25,18 @@ public:
 
     [[nodiscard]] std::unique_ptr<Sound> loadAudio(const std::string& path) override;
 
-    [[nodiscard]] bool getInfo(const std::string& path,
-                               int& width, int& height,
-                               double& fps, double& duration_seconds) override;
+    [[nodiscard]] bool getInfo(const std::string& path, int& width, int& height, double& fps,
+                               double& duration_seconds) override;
 
-    [[nodiscard]] std::optional<VideoFrame> readFrame(
-        const std::string& path, double time_seconds) override;
+    [[nodiscard]] std::optional<VideoFrame> readFrame(const std::string& path,
+                                                      double time_seconds) override;
 
-    [[nodiscard]] std::vector<VideoFrame> readSegment(
-        const std::string& path, double start_seconds, double end_seconds) override;
+    [[nodiscard]] std::vector<VideoFrame> readSegment(const std::string& path, double start_seconds,
+                                                      double end_seconds) override;
 
 private:
     struct Impl;
     std::unique_ptr<Impl> pimpl_;
 };
 
-} // namespace audio::adapter::video
+}  // namespace audio::adapter::video
