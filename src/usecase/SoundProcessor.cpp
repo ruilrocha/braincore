@@ -9,17 +9,19 @@
 
 namespace audio::usecase {
 
-SoundProcessor::SoundProcessor(const SearchParams& params, BlockConfig target_config,
+SoundProcessor::SoundProcessor(std::shared_ptr<port::ISearchStrategy> search,
+                               const SearchParams& params, BlockConfig target_config,
                                std::shared_ptr<port::IBlockEffect> spectral_morph,
                                std::shared_ptr<port::IVideoOutput> video_output)
-    : params_(params),
+    : search_(std::move(search)),
+      params_(params),
       target_config_(target_config),
       spectral_morph_(std::move(spectral_morph)),
       video_output_(std::move(video_output)) {}
 
 // ── Main processing pipeline ───────────────────────────────────────────
 
-Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
+Sound SoundProcessor::process(const Brain& brain, const Sound& target) const {
     const auto& target_channels = target.getChannels();
     if (target_channels.empty()) {
         return {std::vector<Channel>{}, target.getSampleRate()};
@@ -51,26 +53,30 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
         return {std::vector<Channel>{}, sample_rate};
     }
 
+    // Per-block usage counters (batch-mode local state — not shared across calls).
+    std::vector<double> block_usages(brain.size(), 0.0);
+    std::size_t current_idx = 0;
+
     // 2. Match each target block (channel 0) against the brain.
     std::vector<const Block*> matches(num_blocks);
 
-    for (std::size_t b = 0; b < num_blocks; ++b) {
-        const auto offset = static_cast<std::ptrdiff_t>(b * step);
+    for (std::size_t block_idx = 0; block_idx < num_blocks; ++block_idx) {
+        const auto offset = static_cast<std::ptrdiff_t>(block_idx * step);
         std::vector block_samples(ch0.begin() + offset,
                                   ch0.begin() + offset + static_cast<std::ptrdiff_t>(bs));
 
         WindowFunction::apply(block_samples, target_config_.window);
-        auto fp = analyser.compute(block_samples, sample_rate);
-        matches[b] = &brain.findBestMatch(fp, params_);
+        const auto fp = analyser.compute(block_samples, sample_rate);
+        current_idx =
+            search_->search(fp, brain.blocks(), analyser, params_, current_idx, block_usages);
+        matches[block_idx] = &brain.blocks()[current_idx];
 
         // Notify video output for this matched block.
-        // Intermediate blocks advance the timeline by step samples; only the
-        // final block covers a full bs-sample window.
         if (video_output_) {
-            const std::size_t samples = (b < num_blocks - 1) ? step : bs;
+            const std::size_t samples = (block_idx < num_blocks - 1) ? step : bs;
             const double block_dur =
                 static_cast<double>(samples) / static_cast<double>(sample_rate);
-            video_output_->onBlock(matches[b]->video, block_dur);
+            video_output_->onBlock(matches[block_idx]->video, block_dur);
         }
     }
 
@@ -82,12 +88,12 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
     for (std::size_t ch = 0; ch < num_channels; ++ch) {
         const auto& tgt_ch = target.getChannel(static_cast<int>(ch));
 
-        for (std::size_t b = 0; b < num_blocks; ++b) {
-            const std::size_t out_offset = b * step;
-            const std::size_t tgt_offset = b * step;
+        for (std::size_t block_idx = 0; block_idx < num_blocks; ++block_idx) {
+            const std::size_t out_offset = block_idx * step;
+            const std::size_t tgt_offset = block_idx * step;
 
             // Get source samples for this channel.
-            const auto& match = *matches[b];
+            const auto& match = *matches[block_idx];
             const std::vector<double>* src_ptr = &match.samples;
             if (ch < match.channel_samples.size() && !match.channel_samples[ch].empty()) {
                 src_ptr = &match.channel_samples[ch];
@@ -103,8 +109,8 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
             }
 
             // ── Spectral morph with previous block ─────────────────────
-            if (do_morph && b > 0) {
-                const auto& prev_match = *matches[b - 1];
+            if (do_morph && block_idx > 0) {
+                const auto& prev_match = *matches[block_idx - 1];
                 const std::vector<double>* prev_ptr = &prev_match.samples;
                 if (ch < prev_match.channel_samples.size() &&
                     !prev_match.channel_samples[ch].empty()) {

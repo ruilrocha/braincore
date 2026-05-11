@@ -46,6 +46,23 @@ public:
      * Check whether the device is currently open and playing.
      */
     [[nodiscard]] virtual bool isOpen() const = 0;
+
+    /**
+     * Total interleaved samples consumed by the hardware callback since open().
+     * Monotonically increasing. Returns 0 if unimplemented.
+     */
+    [[nodiscard]] virtual std::size_t samplesConsumed() const { return 0; }
+
+    /**
+     * Current audio playback position in seconds, compensated for hardware
+     * output buffer latency (one hardware period).
+     *
+     * This is the "true" time the user is hearing — suitable for synchronising
+     * external media (e.g. video frames) to the audio output.
+     *
+     * Returns 0.0 if unimplemented.
+     */
+    [[nodiscard]] virtual double getAudioTimeSec() const { return 0.0; }
 };
 
 }  // namespace audio::port

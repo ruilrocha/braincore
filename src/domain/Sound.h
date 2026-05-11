@@ -28,8 +28,8 @@ public:
     [[nodiscard]] const std::vector<Channel>& getChannels() const { return channels_; }
 
     /** Single channel accessor (bounds-checked). */
-    [[nodiscard]] const Channel& getChannel(int index) const {
-        if (index < 0 || index >= static_cast<int>(channels_.size())) {
+    [[nodiscard]] const Channel& getChannel(const int index) const {
+        if (index < 0 || std::cmp_greater_equal(index, channels_.size())) {
             throw std::out_of_range("Sound::getChannel: index out of range");
         }
         return channels_[index];

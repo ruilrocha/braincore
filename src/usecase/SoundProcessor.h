@@ -5,6 +5,7 @@
 #include "../domain/SearchParams.h"
 #include "../domain/Sound.h"
 #include "../domain/port/IBlockEffect.h"
+#include "../domain/port/ISearchStrategy.h"
 #include "../domain/port/IVideoOutput.h"
 
 #include <memory>
@@ -28,18 +29,21 @@ namespace audio::usecase {
 class SoundProcessor {
 public:
     /**
+     * @param search         Search strategy (required).
      * @param params         Search / blend / effect parameters.
      * @param target_config  Block segmentation config for the target sound.
      * @param spectral_morph Optional spectral morph effect adapter.
      * @param video_output   Optional video output consumer.
      */
-    explicit SoundProcessor(const SearchParams& params = {}, BlockConfig target_config = {},
+    explicit SoundProcessor(std::shared_ptr<port::ISearchStrategy> search,
+                            const SearchParams& params = {}, BlockConfig target_config = {},
                             std::shared_ptr<port::IBlockEffect> spectral_morph = nullptr,
                             std::shared_ptr<port::IVideoOutput> video_output = nullptr);
 
-    [[nodiscard]] Sound process(Brain& brain, const Sound& target) const;
+    [[nodiscard]] Sound process(const Brain& brain, const Sound& target) const;
 
 private:
+    std::shared_ptr<port::ISearchStrategy> search_;
     SearchParams params_;
     BlockConfig target_config_;
     std::shared_ptr<port::IBlockEffect> spectral_morph_;

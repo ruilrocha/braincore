@@ -7,6 +7,7 @@
 #include <format>
 #include <iostream>
 #include <memory>
+#include <print>
 #include <string>
 #include <thread>
 #include <vector>
@@ -30,6 +31,7 @@
 #include "domain/Command.h"
 #include "domain/SearchParams.h"
 #include "domain/Sound.h"
+#include "domain/SynapseGraph.h"
 
 // Use-case layer
 #include "usecase/SoundProcessor.h"
@@ -89,7 +91,7 @@ static void signalHandler(int /*sig*/) {
 
 int main(int argc, char* argv[]) {
     // ── CLI argument parsing ───────────────────────────────────────────
-    enum class Mode { Batch, Stream, Infinite, Ui };
+    enum class Mode : std::uint8_t { Batch, Stream, Infinite, Ui };
     auto mode = Mode::Batch;
 
     struct BrainSource {
@@ -221,7 +223,7 @@ int main(int argc, char* argv[]) {
     auto video_source = std::make_shared<audio::adapter::video::FfmpegVideoSource>(4, 44100);
 
     std::string current_search_name = "synaptic";
-    auto search = makeSearch(current_search_name);
+    // search and synapse_graph are built after brain is loaded (see below)
 
     // ── Block configuration ────────────────────────────────────────────
     audio::BlockConfig source_config{
@@ -232,12 +234,12 @@ int main(int argc, char* argv[]) {
     // ── Search parameters ──────────────────────────────────────────────
     audio::SearchParams params;
     params.alpha = 1.0;
-    params.stickyness = 0.6;
+    params.stickyness = 0.0;
     params.overlap = 0;
-    params.usage_falloff = 0.8;
-    params.usage_weight = 0.8;
+    params.usage_falloff = 0.0;
+    params.usage_weight = 0.0;
     params.blend_ratio = 1.0;
-    params.n_ratio = 0.7;
+    params.n_ratio = 1.0;
     params.spectral_start = 0;
     params.spectral_end = 100;
     params.momentum = 0.0;
@@ -262,22 +264,22 @@ int main(int argc, char* argv[]) {
     int default_ch = 2;
 
     // ── Helper: load sounds into brain ─────────────────────────────────
-    auto buildBrain = [&]() -> audio::Brain {
-        audio::Brain brain(analyser, search, source_config);
-        for (const auto& src : brain_sources) {
-            const std::string full_path = resolvePath(src.path);
+    auto loadBrain = [&]() -> std::shared_ptr<audio::Brain> {
+        auto brain = std::make_shared<audio::Brain>(analyser, source_config);
+        for (const auto& [path, is_video] : brain_sources) {
+            const std::string full_path = resolvePath(path);
 
-            if (src.is_video) {
+            if (is_video) {
                 auto sound = video_source->loadAudio(full_path);
                 if (!sound) {
                     std::cerr << std::format("Failed to extract audio from video: {}\n", full_path);
                     continue;
                 }
-                std::cout << std::format("Video source '{}': {} ch, {} samples, {} Hz\n", src.path,
+                std::cout << std::format("Video source '{}': {} ch, {} samples, {} Hz\n", path,
                                          sound->getNumChannels(), sound->getNumSamples(),
                                          sound->getSampleRate());
-                brain.addSound(
-                    *sound, src.path,
+                brain->addSound(
+                    *sound, path,
                     audio::VideoMetadata{.path = full_path, .start_offset_seconds = 0.0});
                 continue;
             }
@@ -287,25 +289,33 @@ int main(int argc, char* argv[]) {
                 std::cerr << std::format("Failed to load brain sound: {}\n", full_path);
                 continue;
             }
-            std::cout << std::format("Brain source '{}': {} ch, {} samples, {} Hz\n", src.path,
+            std::cout << std::format("Brain source '{}': {} ch, {} samples, {} Hz\n", path,
                                      sound->getNumChannels(), sound->getNumSamples(),
                                      sound->getSampleRate());
-            brain.addSound(*sound, src.path);
-        }
-        if (current_search_name == "synaptic" || current_search_name == "markov") {
-            std::cout << std::format("Building synapses ({})...\n", num_synapses);
-            brain.buildSynapses(static_cast<std::size_t>(num_synapses));
+            brain->addSound(*sound, path);
         }
         return brain;
     };
 
-    audio::Brain brain = buildBrain();
+    // Always build the synapse graph; graph-aware strategies receive it at construction.
+    auto buildSearch = [&](const std::shared_ptr<const audio::Brain>& b)
+        -> std::shared_ptr<audio::port::ISearchStrategy> {
+        std::cout << std::format("Building synapses ({})...\n", num_synapses);
+        auto graph = std::make_shared<const audio::SynapseGraph>(
+            audio::buildSynapseGraph(*b, static_cast<std::size_t>(num_synapses)));
+        std::cout << "Synapses built successfully.\n";
+        return makeSearch(current_search_name, std::move(graph));
+    };
 
-    if (brain.empty()) {
+    auto brain = loadBrain();
+
+    if (brain->empty()) {
         std::cerr << "Brain is empty — no usable source sounds were loaded.\n";
         return 1;
     }
-    std::cout << std::format("Brain ready: {} blocks\n", brain.size());
+    std::cout << std::format("Brain ready: {} blocks\n", brain->size());
+
+    auto search = buildSearch(brain);
 
     // ── Probe sample rate and channels from first source ───────────────
     if (!brain_sources.empty()) {
@@ -350,6 +360,8 @@ int main(int argc, char* argv[]) {
         bool playing = false;
         bool recording = false;
         std::shared_ptr<audio::adapter::gateway::DrLibsRecorder> recorder;
+        // Kept alive between startPlayback calls so the main loop can call renderFrameForTime.
+        std::shared_ptr<audio::port::IVideoOutput> current_video_out;
 
         // ── SDL Video display (UI mode only, requires -vout flag) ─────────
         // sdl_display persists for the whole session; a fresh VideoDisplayOutput
@@ -380,14 +392,15 @@ int main(int argc, char* argv[]) {
             params = param_ctrl->getParams();
 
             // Fresh VideoDisplayOutput each start so the decoder thread is alive.
-            std::shared_ptr<audio::port::IVideoOutput> video_out;
             if (sdl_display) {
-                video_out = std::make_shared<audio::adapter::display::VideoDisplayOutput>(
+                current_video_out = std::make_shared<audio::adapter::display::VideoDisplayOutput>(
                     video_source, sdl_display);
+            } else {
+                current_video_out.reset();
             }
             streamer = std::make_unique<audio::usecase::StreamProcessor>(
-                params, target_config, audio_output, spectral_morph, param_ctrl, recorder,
-                video_out);
+                brain, search, params, target_config, audio_output, spectral_morph, param_ctrl,
+                recorder, current_video_out);
             g_stream = streamer.get();
             playing = true;
             cfg.playing = true;
@@ -397,18 +410,31 @@ int main(int argc, char* argv[]) {
                 std::cout << std::format("▶ Starting stream (target: {})...\n", tgt);
                 cfg.target_path = tgt;
                 param_ctrl->setConfigState(cfg);
-                audio_thread = std::thread([&, tgt] {
-                    const auto target_sound = gateway.loadSound(resolvePath(tgt));
-                    if (!target_sound) {
-                        std::cerr << std::format("Failed to load target: {}\n", tgt);
-                        return;
+                audio_thread = std::thread([&, tgt]() noexcept {
+                    try {
+                        const auto target_sound = gateway.loadSound(resolvePath(tgt));
+                        if (!target_sound) {
+                            std::println(stderr, "Failed to load target: {}", tgt);
+                            return;
+                        }
+                        streamer->stream(*target_sound);
+                    } catch (const std::exception& e) {
+                        std::println(stderr, "Stream error: {}", e.what());
+                    } catch (...) {
+                        std::println(stderr, "Stream error: unknown exception");
                     }
-                    streamer->stream(brain, *target_sound);
                 });
             } else {
                 std::cout << "▶ Starting infinite landscape...\n";
-                audio_thread =
-                    std::thread([&] { streamer->streamInfinite(brain, default_sr, default_ch); });
+                audio_thread = std::thread([&]() noexcept {
+                    try {
+                        streamer->streamInfinite(default_sr, default_ch);
+                    } catch (const std::exception& e) {
+                        std::println(stderr, "Infinite stream error: {}", e.what());
+                    } catch (...) {
+                        std::println(stderr, "Infinite stream error: unknown exception");
+                    }
+                });
             }
         };
 
@@ -442,6 +468,11 @@ int main(int argc, char* argv[]) {
                         g_quit = true;
                         break;
                     }
+                }
+                // Pull the video frame matching the current audio clock position,
+                // then blit it to screen.  Order matters: update frame first.
+                if (current_video_out) {
+                    current_video_out->renderFrameForTime(audio_output->getAudioTimeSec());
                 }
                 if (!sdl_display->renderLatestFrame()) {
                     g_quit = true;
@@ -503,8 +534,8 @@ int main(int argc, char* argv[]) {
 
                             if (!cmd.search_strategy.empty()) {
                                 current_search_name = cmd.search_strategy;
-                                search = makeSearch(current_search_name);
                             }
+                            num_synapses = cmd.num_synapses;
 
                             const bool config_changed =
                                 cmd.block_size != source_config.block_size ||
@@ -518,15 +549,16 @@ int main(int argc, char* argv[]) {
                                 target_config.block_size = cmd.block_size;
                                 target_config.overlap = cmd.overlap;
                                 target_config.window = windowFromOrdinal(cmd.window_shape);
-                                num_synapses = cmd.num_synapses;
-                                brain = buildBrain();
+                                brain = loadBrain();
                                 std::cout
-                                    << std::format("Brain rebuilt: {} blocks\n", brain.size());
+                                    << std::format("Brain rebuilt: {} blocks\n", brain->size());
                             } else {
-                                brain.setSearchStrategy(search);
+                                brain =
+                                    audio::Brain::rebuild(brain->blocks(), analyser, source_config);
                                 std::cout << std::format("Search strategy set to '{}'\n",
                                                          current_search_name);
                             }
+                            search = buildSearch(brain);
 
                             cfg.block_size = cmd.block_size;
                             cfg.overlap = cmd.overlap;
@@ -585,10 +617,11 @@ int main(int argc, char* argv[]) {
         }
 
         auto streamer = std::make_unique<audio::usecase::StreamProcessor>(
-            params, target_config, audio_output, spectral_morph, param_ctrl, recorder);
+            brain, search, params, target_config, audio_output, spectral_morph, param_ctrl,
+            recorder);
         g_stream = streamer.get();
 
-        streamer->streamInfinite(brain, default_sr, default_ch);
+        streamer->streamInfinite(default_sr, default_ch);
 
         ws_ctrl->stop();
         g_stream = nullptr;
@@ -632,10 +665,11 @@ int main(int argc, char* argv[]) {
         }
 
         auto streamer = std::make_unique<audio::usecase::StreamProcessor>(
-            params, target_config, audio_output, spectral_morph, param_ctrl, recorder);
+            brain, search, params, target_config, audio_output, spectral_morph, param_ctrl,
+            recorder);
         g_stream = streamer.get();
 
-        if (!streamer->stream(brain, *target)) {
+        if (!streamer->stream(*target)) {
             std::cerr << "Failed to open audio device.\n";
             return 1;
         }
@@ -670,8 +704,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    audio::usecase::SoundProcessor processor(params, target_config, spectral_morph, video_out);
-    audio::Sound result = processor.process(brain, *target);
+    audio::usecase::SoundProcessor processor(search, params, target_config, spectral_morph,
+                                             video_out);
+    audio::Sound result = processor.process(*brain, *target);
     if (video_out) {
         video_out->close();
     }

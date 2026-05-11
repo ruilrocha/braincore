@@ -2,13 +2,15 @@
 
 #include "constants.h"
 
+#include <cstdint>
+
 namespace audio {
 
 /**
  * Window shapes for audio block analysis.
  * Applied to samples before fingerprinting to reduce spectral leakage.
  */
-enum class WindowShape {
+enum class WindowShape : std::uint8_t {
     Rectangle,  ///< No windowing (flat).
     Hamming,    ///< Good general-purpose, reduced side lobes.
     Hann,       ///< Similar to Hamming, zero at endpoints.

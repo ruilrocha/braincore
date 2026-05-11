@@ -7,7 +7,7 @@
 using audio::Sound;
 
 TEST(Sound, ConstructionStoresData) {
-    std::vector<audio::Channel> channels = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
+    const std::vector<audio::Channel> channels = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
     Sound s(channels, 44100);
 
     EXPECT_EQ(s.getNumChannels(), 2);

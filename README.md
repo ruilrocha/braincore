@@ -13,6 +13,9 @@ Load audio (or video) sources into a "Brain", then process target audio by repla
 - **Real-time parameter control** — WebSocket server + browser control panel for live tweaking
 - **Infinite generative mode** — Endless evolving soundscapes with drift and stuck-detection
 - **Video I/O** — Load video sources; similarity is audio-driven but matched video segments are played back in sync
+- **Hardware-accelerated video decode** — VideoToolbox (H264/HEVC) on macOS for zero-CPU video decode; falls back to single-threaded software decode
+- **NV12 native rendering** — VideoToolbox output is fed directly to SDL3 via `SDL_UpdateNVTexture`, bypassing all CPU-side pixel conversion
+- **Glitch-free real-time audio** — 4-second lock-free SPSC ring buffer with a never-drop producer; denormal-float flushing in the audio callback; wall-clock interpolation for sub-period A/V sync accuracy
 - **Cross-platform** — macOS, Linux (Docker)
 
 ---
@@ -168,9 +171,9 @@ All managed via Conan:
 - **[dr_libs](https://github.com/mackron/dr_libs)** — Header-only audio I/O (WAV/FLAC/MP3)
 - **[miniaudio](https://miniaud.io)** — Cross-platform audio playback
 - **[ixwebsocket](https://github.com/machinezone/IXWebSocket)** — WebSocket server
-- **[readerwriterqueue](https://github.com/cameron314/readerwriterqueue)** — Lock-free SPSC ring buffer
-- **[avcpp](https://github.com/h4tr3d/avcpp)** — C++ wrapper for FFmpeg (video I/O)
-- **[SDL3](https://libsdl.org)** — Real-time video display
+- **[readerwriterqueue](https://github.com/cameron314/readerwriterqueue)** — Lock-free SPSC ring buffer (4-second audio buffer; producer never drops samples)
+- **[avcpp](https://github.com/h4tr3d/avcpp)** — C++ wrapper for FFmpeg (video I/O; VideoToolbox HW decode on macOS)
+- **[SDL3](https://libsdl.org)** — Real-time video display (NV12 and YUV420P native textures)
 - **Aquila** (in-tree, `src/aquila/`) — Mel filter bank
 
 ---

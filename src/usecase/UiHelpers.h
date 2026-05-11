@@ -13,6 +13,7 @@
 #include "../adapter/search/MarkovChainSearch.h"
 #include "../adapter/search/MomentumSearch.h"
 #include "../adapter/search/SynapticSearch.h"
+#include "../domain/SynapseGraph.h"
 
 namespace audio::ui {
 
@@ -46,13 +47,26 @@ inline bool isAudioFile(const std::filesystem::path& path) {
 
 // ── Search strategy factory ────────────────────────────────────────────
 
-inline auto makeSearch(const std::string& name) -> std::shared_ptr<port::ISearchStrategy> {
+/**
+ * Create a search strategy by name.
+ *
+ * The @p graph is always pre-built by the composition root and passed here.
+ * Graph-aware strategies (synaptic, markov) take it at construction time —
+ * construction throws `std::invalid_argument` if the graph is null.
+ * Non-graph strategies (closest, momentum) ignore it.
+ *
+ * @param name   Strategy name: "synaptic", "markov", "momentum", or anything
+ *               else defaults to ClosestSearch.
+ * @param graph  Pre-built SynapseGraph (must be non-null for synaptic/markov).
+ */
+inline auto makeSearch(const std::string& name, std::shared_ptr<const SynapseGraph> graph)
+    -> std::shared_ptr<port::ISearchStrategy> {
     using namespace adapter::search;
     if (name == "synaptic") {
-        return std::make_shared<SynapticSearch>();
+        return std::make_shared<SynapticSearch>(100, std::move(graph));
     }
     if (name == "markov") {
-        return std::make_shared<MarkovChainSearch>();
+        return std::make_shared<MarkovChainSearch>(1.0, 100, std::move(graph));
     }
     if (name == "momentum") {
         return std::make_shared<MomentumSearch>();

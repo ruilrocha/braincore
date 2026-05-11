@@ -18,7 +18,7 @@ namespace audio::adapter::display {
  * SDL3 video display — implements IVideoDisplay (rendering only).
  *
  * Responsibilities:
- *   - Open an SDL3 window and create a streaming RGB24 texture.
+ *   - Open an SDL3 window and create a streaming texture (IYUV by default).
  *   - showFrame(): store the latest decoded frame (thread-safe, any thread).
  *   - renderLatestFrame(): upload texture + present (call ~60fps from main thread).
  *   - close(): signal stop (thread-safe); SDL teardown deferred to main thread.
@@ -61,6 +61,8 @@ private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture* texture_ = nullptr;
+    uint32_t texture_format_ =
+        0;  ///< Current SDL pixel format of texture_ (SDL_PixelFormat value).
 
     mutable std::mutex frame_mutex_;
     std::shared_ptr<VideoFrame> latest_frame_;

@@ -10,19 +10,27 @@
 
 namespace audio::usecase {
 
-StreamProcessor::StreamProcessor(SearchParams params, BlockConfig target_config,
+StreamProcessor::StreamProcessor(std::shared_ptr<const Brain> brain,
+                                 std::shared_ptr<port::ISearchStrategy> search, SearchParams params,
+                                 BlockConfig target_config,
                                  std::shared_ptr<port::IAudioOutput> output,
                                  std::shared_ptr<port::IBlockEffect> spectral_morph,
                                  std::shared_ptr<port::IParamController> param_controller,
                                  std::shared_ptr<port::IRecorder> recorder,
                                  std::shared_ptr<port::IVideoOutput> video_output)
-    : params_(params),
+    : brain_(std::move(brain)),
+      search_(std::move(search)),
+      params_(params),
       target_config_(target_config),
       output_(std::move(output)),
       spectral_morph_(std::move(spectral_morph)),
       param_controller_(std::move(param_controller)),
-      recorder_(std::move(recorder)),
-      video_output_(std::move(video_output)) {}
+      video_output_(std::move(video_output)),
+      recorder_(std::move(recorder)) {
+    if (brain_) {
+        block_usages_.assign(brain_->size(), 0.0);
+    }
+}
 
 // ── activeParams ───────────────────────────────────────────────────────
 
@@ -102,7 +110,7 @@ void StreamProcessor::setRecorder(std::shared_ptr<port::IRecorder> recorder) {
 
 // ── stream (target-driven, loops forever) ──────────────────────────────
 
-bool StreamProcessor::stream(Brain& brain, const Sound& target) {
+bool StreamProcessor::stream(const Sound& target) {
     if (!output_) {
         return false;
     }
@@ -111,14 +119,13 @@ bool StreamProcessor::stream(Brain& brain, const Sound& target) {
     const auto num_channels = static_cast<std::size_t>(target.getNumChannels());
     const auto bs = static_cast<std::size_t>(target_config_.block_size);
     const auto& ch0 = target.getChannel(0);
-    const auto& analyser = brain.analyser();
 
     if (!output_->open(sample_rate, static_cast<int>(num_channels), static_cast<int>(bs))) {
         return false;
     }
 
     running_ = true;
-    prev_block_.clear();
+    total_samples_written_ = 0;
 
     const auto ovl = static_cast<std::size_t>(
         std::max(0, std::min(target_config_.overlap, target_config_.block_size - 1)));
@@ -130,13 +137,23 @@ bool StreamProcessor::stream(Brain& brain, const Sound& target) {
             // Snapshot live params for this block.
             const auto params = activeParams();
 
+            if (!brain_ || brain_->empty() || !search_) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+
+            const auto& analyser = brain_->analyser();
+
             // Fingerprint channel 0.
             std::vector<double> fp_block(ch0.begin() + static_cast<std::ptrdiff_t>(pos),
                                          ch0.begin() + static_cast<std::ptrdiff_t>(pos + bs));
             WindowFunction::apply(fp_block, target_config_.window);
-            auto fp = analyser.compute(fp_block, sample_rate);
+            const auto fp = analyser.compute(fp_block, sample_rate);
 
-            const auto& match = brain.findBestMatch(fp, params);
+            // Find best match.
+            current_block_idx_ = search_->search(fp, brain_->blocks(), analyser, params,
+                                                 current_block_idx_, block_usages_);
+            const auto& match = brain_->blocks()[current_block_idx_];
 
             // Build per-channel output.
             std::vector<std::vector<double>> out_channels(num_channels);
@@ -150,7 +167,6 @@ bool StreamProcessor::stream(Brain& brain, const Sound& target) {
 
                 auto src = applyEffects(*src_ptr, bs, params);
 
-                // Alpha-blend with target.
                 const double alpha = params.alpha;
                 out_channels[ch].resize(bs);
                 for (std::size_t i = 0; i < bs; ++i) {
@@ -162,10 +178,13 @@ bool StreamProcessor::stream(Brain& brain, const Sound& target) {
 
             outputBlock(out_channels);
 
-            // Notify video output with the matched block's video segment.
             if (video_output_) {
                 const double block_dur = static_cast<double>(bs) / static_cast<double>(sample_rate);
-                video_output_->onBlock(match.video, block_dur);
+                const double block_audio_start =
+                    static_cast<double>(total_samples_written_) /
+                    static_cast<double>(sample_rate * out_channels.size());
+                total_samples_written_ += bs * out_channels.size();
+                video_output_->onBlock(match.video, block_dur, block_audio_start);
             }
         }
         // Target exhausted — loop back to the beginning.
@@ -189,8 +208,8 @@ bool StreamProcessor::stream(Brain& brain, const Sound& target) {
 
 // ── streamInfinite (generative) ────────────────────────────────────────
 
-void StreamProcessor::streamInfinite(Brain& brain, const int sample_rate, const int channels) {
-    if (!output_ || brain.empty()) {
+void StreamProcessor::streamInfinite(const int sample_rate, const int channels) {
+    if (!output_ || !brain_ || brain_->empty() || !search_) {
         return;
     }
 
@@ -202,11 +221,11 @@ void StreamProcessor::streamInfinite(Brain& brain, const int sample_rate, const 
     }
 
     running_ = true;
-    prev_block_.clear();
+    total_samples_written_ = 0;
 
     // Seed with a random block's fingerprint.
-    brain.jiggle();
-    std::vector<double> search_fp = brain.blocks()[brain.currentBlockIndex()].mfcc;
+    current_block_idx_ = rng::randomIndex(brain_->size());
+    std::vector<double> search_fp = brain_->blocks()[current_block_idx_].print.mfcc;
 
     // Compute the typical scale of fingerprint values so drift is meaningful.
     double fp_scale = 0.0;
@@ -220,38 +239,43 @@ void StreamProcessor::streamInfinite(Brain& brain, const int sample_rate, const 
     }
 
     std::size_t step_count = 0;
-    std::size_t prev_match_idx = brain.currentBlockIndex();
+    std::size_t prev_match_idx = current_block_idx_;
     std::size_t stuck_count = 0;
 
     while (running_) {
         // Snapshot live params for this block.
         const auto params = activeParams();
 
+        const auto& analyser = brain_->analyser();
+
         // Build infinite-mode overrides.
         SearchParams inf_params = params;
         inf_params.usage_weight = std::max(params.usage_weight, 0.1);
         const double inf_usage_falloff = std::min(params.usage_falloff, 0.995);
 
-        const auto& match = brain.findBestMatch(search_fp, inf_params);
-        const std::size_t match_idx = brain.currentBlockIndex();
+        current_block_idx_ = search_->search(search_fp, brain_->blocks(), analyser, inf_params,
+                                             current_block_idx_, block_usages_);
+        const auto& match = brain_->blocks()[current_block_idx_];
 
         // Detect being stuck on the same block.
-        if (match_idx == prev_match_idx) {
+        if (current_block_idx_ == prev_match_idx) {
             ++stuck_count;
         } else {
             stuck_count = 0;
         }
-        prev_match_idx = match_idx;
+        prev_match_idx = current_block_idx_;
 
         // If stuck for too many steps, jiggle to break out.
         if (stuck_count > 3) {
-            brain.jiggle();
-            search_fp = brain.blocks()[brain.currentBlockIndex()].mfcc;
+            current_block_idx_ = rng::randomIndex(brain_->size());
+            search_fp = brain_->blocks()[current_block_idx_].print.mfcc;
+            // Reset usages so blocks are available again.
+            std::fill(block_usages_.begin(), block_usages_.end(), 0.0);
             stuck_count = 0;
         }
 
         // Evolve search fingerprint: blend toward match + additive drift.
-        const auto& match_fp = match.mfcc;
+        const auto& match_fp = match.print.mfcc;
         search_fp.resize(match_fp.size());
 
         const double drift_amount =
@@ -263,7 +287,11 @@ void StreamProcessor::streamInfinite(Brain& brain, const int sample_rate, const 
         }
 
         // Deplete usage so blocks gradually become available again.
-        brain.depleteUsage(inf_usage_falloff);
+        if (inf_usage_falloff < 1.0) {
+            for (auto& u : block_usages_) {
+                u *= inf_usage_falloff;
+            }
+        }
 
         // Output audio.
         std::vector<std::vector<double>> out_channels(num_ch);
@@ -277,10 +305,13 @@ void StreamProcessor::streamInfinite(Brain& brain, const int sample_rate, const 
 
         outputBlock(out_channels);
 
-        // Notify video output with the matched block's video segment.
         if (video_output_) {
             const double block_dur = static_cast<double>(bs) / static_cast<double>(sample_rate);
-            video_output_->onBlock(match.video, block_dur);
+            const double block_audio_start =
+                static_cast<double>(total_samples_written_) /
+                static_cast<double>(sample_rate * static_cast<int>(num_ch));
+            total_samples_written_ += bs * num_ch;
+            video_output_->onBlock(match.video, block_dur, block_audio_start);
         }
 
         ++step_count;

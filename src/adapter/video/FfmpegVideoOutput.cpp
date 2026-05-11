@@ -32,7 +32,6 @@ struct FfmpegVideoOutput::Impl {
     av::FormatContext fmt_ctx;
     av::VideoEncoderContext enc_ctx;
     av::Stream vid_stream;
-    av::VideoRescaler rescaler;
     bool opened = false;
     bool closed = false;
     int64_t pts = 0;
@@ -45,20 +44,11 @@ struct FfmpegVideoOutput::Impl {
     VideoFrame black_frame;
 
     Impl(std::shared_ptr<port::IVideoSource> src, std::string path, int w, int h, double f)
-        : source(std::move(src)),
-          output_path(std::move(path)),
-          width(w),
-          height(h),
-          fps(f),
-          rescaler(w, h, AV_PIX_FMT_YUV420P, w, h, AV_PIX_FMT_RGB24) {
+        : source(std::move(src)), output_path(std::move(path)), width(w), height(h), fps(f) {
         av::init();
         av::setFFmpegLoggingLevel(AV_LOG_FATAL);
 
-        // Pre-build black frame (RGB24, all zeros).
-        black_frame.width = w;
-        black_frame.height = h;
-        black_frame.timestamp_seconds = 0.0;
-        black_frame.pixels.assign(static_cast<std::size_t>(w * h * 3), 0);
+        black_frame = VideoFrame::black(w, h);
     }
 
     bool open() {
@@ -108,14 +98,36 @@ struct FfmpegVideoOutput::Impl {
 
         std::error_code ec;
 
-        // Wrap domain VideoFrame pixels (RGB24) into an avcpp VideoFrame.
-        av::VideoFrame src_frame =
-            av::VideoFrame::wrap(const_cast<uint8_t*>(frame.pixels.data()), frame.pixels.size(),
-                                 AV_PIX_FMT_RGB24, frame.width, frame.height);
-
-        av::VideoFrame yuv = rescaler.rescale(src_frame, ec);
-        if (ec || !yuv)
+        // Build a YUV420P avcpp frame from the domain VideoFrame (always Yuv420pData).
+        // The output encoder is configured for AV_PIX_FMT_YUV420P.
+        av::VideoFrame yuv(av::PixelFormat(AV_PIX_FMT_YUV420P), frame.width, frame.height);
+        yuv.setComplete(true);
+        if (!yuv)
             return;
+
+        const int uv_h = frame.height / 2;
+        const int uv_w = frame.width / 2;
+
+        if (const auto* yuv_src = std::get_if<Yuv420pData>(&frame.pixels)) {
+            for (int row = 0; row < frame.height; ++row) {
+                std::memcpy(
+                    yuv.raw()->data[0] + row * yuv.raw()->linesize[0],
+                    yuv_src->y.data.data() + static_cast<std::size_t>(row) * yuv_src->y.stride,
+                    static_cast<std::size_t>(frame.width));
+            }
+            for (int row = 0; row < uv_h; ++row) {
+                std::memcpy(
+                    yuv.raw()->data[1] + row * yuv.raw()->linesize[1],
+                    yuv_src->u.data.data() + static_cast<std::size_t>(row) * yuv_src->u.stride,
+                    static_cast<std::size_t>(uv_w));
+                std::memcpy(
+                    yuv.raw()->data[2] + row * yuv.raw()->linesize[2],
+                    yuv_src->v.data.data() + static_cast<std::size_t>(row) * yuv_src->v.stride,
+                    static_cast<std::size_t>(uv_w));
+            }
+        } else {
+            return;  // Unsupported pixel format for encoding.
+        }
 
         const av::Rational tb = enc_ctx.timeBase();
         // PTS = frame_index * (90000 / fps) — exact integer ticks in 90000Hz timebase.
@@ -154,7 +166,8 @@ FfmpegVideoOutput::~FfmpegVideoOutput() {
 
 // ── onBlock ───────────────────────────────────────────────────────────
 
-void FfmpegVideoOutput::onBlock(const std::optional<VideoSegment>& segment, double duration_sec) {
+void FfmpegVideoOutput::onBlock(const std::optional<VideoSegment>& segment, double duration_sec,
+                                double /*block_audio_start_sec*/) {
     if (!pimpl_->open())
         return;
 

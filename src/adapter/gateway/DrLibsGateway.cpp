@@ -20,7 +20,7 @@ namespace audio::adapter::gateway {
 
 namespace {
 
-enum class AudioFormat { Wav, Flac, Mp3, Unknown };
+enum class AudioFormat : std::uint8_t { Wav, Flac, Mp3, Unknown };
 
 AudioFormat detectFormat(const std::string& path) {
     auto ext = std::filesystem::path(path).extension().string();
