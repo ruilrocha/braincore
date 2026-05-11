@@ -49,7 +49,7 @@ MelFilterBank::MelFilterBank(const double sample_rate, const std::size_t fft_siz
 }
 
 std::vector<double> MelFilterBank::apply(const std::vector<double>& magnitude) const {
-    std::vector<double> energies(num_filters_, 0.0);
+    std::vector energies(num_filters_, 0.0);
 
     for (std::size_t f = 0; f < num_filters_; ++f) {
         double sum = 0.0;

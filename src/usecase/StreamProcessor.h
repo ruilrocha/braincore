@@ -13,6 +13,7 @@
 #include "../domain/port/IBlockEffect.h"
 #include "../domain/port/IParamController.h"
 #include "../domain/port/IRecorder.h"
+#include "../domain/port/IVideoOutput.h"
 
 namespace audio::usecase {
 
@@ -28,6 +29,9 @@ namespace audio::usecase {
  *   - stream(brain, target):  process a target sound in real-time.
  *   - streamInfinite(brain):  generate audio endlessly by walking
  *                              through the brain's timbral space.
+ *
+ * Optional video output: if a IVideoOutput is injected, onBlock() is called
+ * for every matched block with its VideoSegment (or nullopt for audio-only).
  */
 class StreamProcessor {
 public:
@@ -38,13 +42,15 @@ public:
      * @param spectral_morph   Optional spectral morph effect (injected port).
      * @param param_controller Optional live parameter controller (injected port).
      * @param recorder         Optional output recorder (injected port).
+     * @param video_output     Optional video output consumer (injected port).
      */
     StreamProcessor(SearchParams params,
                     BlockConfig  target_config,
                     std::shared_ptr<port::IAudioOutput>      output,
                     std::shared_ptr<port::IBlockEffect>      spectral_morph   = nullptr,
                     std::shared_ptr<port::IParamController>  param_controller = nullptr,
-                    std::shared_ptr<port::IRecorder>         recorder         = nullptr);
+                    std::shared_ptr<port::IRecorder>         recorder         = nullptr,
+                    std::shared_ptr<port::IVideoOutput>      video_output     = nullptr);
 
     /**
      * Stream a target sound through the brain in real-time, looping
@@ -97,6 +103,7 @@ private:
     std::shared_ptr<port::IBlockEffect>     spectral_morph_;
     std::shared_ptr<port::IParamController> param_controller_;
     std::shared_ptr<port::IRecorder>        recorder_;
+    std::shared_ptr<port::IVideoOutput>     video_output_;
     mutable std::mutex                      recorder_mutex_;
 
     std::vector<double> prev_block_;  ///< Previous block for spectral morph.

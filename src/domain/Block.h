@@ -1,7 +1,10 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
+
+#include "VideoSegment.h"
 
 namespace audio {
 
@@ -43,6 +46,12 @@ struct Block {
 
     // ── Source metadata ────────────────────────────────────────────────
     std::string source_name;  ///< Label / path of the originating sound.
+
+    // ── Video metadata (optional) ──────────────────────────────────────
+    /// Present when this block was sourced from a video file.
+    /// Identifies the time range in the source video that corresponds to
+    /// this audio block. std::nullopt for audio-only sources (→ black frame).
+    std::optional<VideoSegment> video;
 
     // ── Usage tracking ─────────────────────────────────────────────────
     /// Usage counter — incremented each time this block is selected.

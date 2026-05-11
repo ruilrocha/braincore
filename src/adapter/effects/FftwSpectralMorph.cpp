@@ -21,8 +21,8 @@ std::vector<double> SpectralMorph::apply(
     const double inv_amount = 1.0 - amount;
 
     // ── Forward FFT of both blocks ─────────────────────────────────────
-    std::span<const double> prev_span(prev.data(), n);
-    std::span<const double> curr_span(current.data(), n);
+    std::span prev_span(prev.data(), n);
+    std::span curr_span(current.data(), n);
 
     auto spec_prev = fft_->forward(prev_span);
     auto spec_curr = fft_->forward(curr_span);

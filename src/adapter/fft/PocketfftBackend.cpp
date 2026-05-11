@@ -42,7 +42,7 @@ std::vector<double> PocketfftBackend::inverse(
 
     std::vector<std::complex<double>> in(half);
     for (std::size_t k = 0; k < half; ++k) {
-        in[k] = std::complex<double>(input[k].real, input[k].imag);
+        in[k] = std::complex(input[k].real, input[k].imag);
     }
 
     std::vector<double> result(output_size);
@@ -65,7 +65,7 @@ std::vector<double> PocketfftBackend::dct(
     pocketfft::shape_t axes{0};
 
     // PocketFFT DCT type-II.
-    std::vector<double> buf(input.begin(), input.end());
+    std::vector buf(input.begin(), input.end());
     pocketfft::dct(shape, stride, stride, axes, 2 /* type-II */,
                    buf.data(), buf.data(), 1.0, true /* ortho */);
 

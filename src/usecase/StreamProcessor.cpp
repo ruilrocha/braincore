@@ -16,13 +16,15 @@ StreamProcessor::StreamProcessor(
     std::shared_ptr<port::IAudioOutput>      output,
     std::shared_ptr<port::IBlockEffect>      spectral_morph,
     std::shared_ptr<port::IParamController>  param_controller,
-    std::shared_ptr<port::IRecorder>         recorder)
+    std::shared_ptr<port::IRecorder>         recorder,
+    std::shared_ptr<port::IVideoOutput>      video_output)
     : params_(params),
       target_config_(target_config),
       output_(std::move(output)),
       spectral_morph_(std::move(spectral_morph)),
       param_controller_(std::move(param_controller)),
-      recorder_(std::move(recorder)) {}
+      recorder_(std::move(recorder)),
+      video_output_(std::move(video_output)) {}
 
 // ── activeParams ───────────────────────────────────────────────────────
 
@@ -165,6 +167,13 @@ bool StreamProcessor::stream(Brain& brain, const Sound& target) {
             }
 
             outputBlock(out_channels);
+
+            // Notify video output with the matched block's video segment.
+            if (video_output_) {
+                const double block_dur =
+                    static_cast<double>(bs) / static_cast<double>(sample_rate);
+                video_output_->onBlock(match.video, block_dur);
+            }
         }
         // Target exhausted — loop back to the beginning.
     }
@@ -172,6 +181,7 @@ bool StreamProcessor::stream(Brain& brain, const Sound& target) {
     // Wait for the ring buffer to drain.
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     output_->close();
+    if (video_output_) video_output_->close();
     {
         std::lock_guard lock(recorder_mutex_);
         if (recorder_) recorder_->close();
@@ -264,11 +274,20 @@ void StreamProcessor::streamInfinite(Brain& brain, const int sample_rate,
         }
 
         outputBlock(out_channels);
+
+        // Notify video output with the matched block's video segment.
+        if (video_output_) {
+            const double block_dur =
+                static_cast<double>(bs) / static_cast<double>(sample_rate);
+            video_output_->onBlock(match.video, block_dur);
+        }
+
         ++step_count;
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     output_->close();
+    if (video_output_) video_output_->close();
     {
         std::lock_guard lock(recorder_mutex_);
         if (recorder_) recorder_->close();

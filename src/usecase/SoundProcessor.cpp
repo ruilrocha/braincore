@@ -10,10 +10,12 @@
 namespace audio::usecase {
 
 SoundProcessor::SoundProcessor(const SearchParams &params, BlockConfig target_config,
-                               std::shared_ptr<port::IBlockEffect> spectral_morph)
+                               std::shared_ptr<port::IBlockEffect>  spectral_morph,
+                               std::shared_ptr<port::IVideoOutput>  video_output)
     : params_(params),
       target_config_(target_config),
-      spectral_morph_(std::move(spectral_morph)) {}
+      spectral_morph_(std::move(spectral_morph)),
+      video_output_(std::move(video_output)) {}
 
 // ── Main processing pipeline ───────────────────────────────────────────
 
@@ -61,6 +63,16 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
         WindowFunction::apply(block_samples, target_config_.window);
         auto fp = analyser.compute(block_samples, sample_rate);
         matches[b] = &brain.findBestMatch(fp, params_);
+
+        // Notify video output for this matched block.
+        // Intermediate blocks advance the timeline by step samples; only the
+        // final block covers a full bs-sample window.
+        if (video_output_) {
+            const std::size_t samples = (b < num_blocks - 1) ? step : bs;
+            const double block_dur = static_cast<double>(samples) /
+                                     static_cast<double>(sample_rate);
+            video_output_->onBlock(matches[b]->video, block_dur);
+        }
     }
 
     // 3. Reconstruct every channel using overlap-add.
@@ -154,4 +166,3 @@ Sound SoundProcessor::process(Brain& brain, const Sound& target) const {
 }
 
 } // namespace audio::usecase
-

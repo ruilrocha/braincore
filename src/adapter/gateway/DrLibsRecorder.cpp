@@ -51,8 +51,7 @@ void DrLibsRecorder::write(const std::vector<double>& samples) {
         buf[i] = static_cast<float>(samples[i]);
     }
 
-    drwav_write_pcm_frames(&impl_->wav,
-                           static_cast<drwav_uint64>(frame_count), buf.data());
+    drwav_write_pcm_frames(&impl_->wav, frame_count, buf.data());
 }
 
 void DrLibsRecorder::close() {

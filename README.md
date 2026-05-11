@@ -9,10 +9,11 @@ Load audio sources into a "Brain", then process target audio by replacing each b
 ## Features
 
 - **Hexagonal architecture** — Clean separation between domain, adapters, and ports
-- **Pluggable backends** — Swap FFT (PocketFFT/FFTW) and audio I/O (dr_libs/libsndfile) via CMake options
+- **Pluggable backends** — Swap audio I/O backends (dr_libs/libsndfile) via CMake options
 - **Multiple search strategies** — Closest, synaptic graph walk, Markov chain, momentum-based trajectory, weighted random
 - **Real-time parameter control** — WebSocket server + browser control panel for live tweaking
 - **Infinite generative mode** — Endless evolving soundscapes with drift and stuck-detection
+- **Video I/O** — Load video sources; similarity is audio-driven but matched video segments are played back in sync
 - **iOS-ready** — C-API + XCFramework support for Swift integration (AVFoundation for audio I/O)
 - **Cross-platform** — macOS, Linux (Docker), iOS (via XCFramework)
 
@@ -25,44 +26,47 @@ Load audio sources into a "Brain", then process target audio by replacing each b
 - **C++23 compiler** (Clang 16+, GCC 13+, MSVC 17.6+)
 - **Conan 2.x** — Dependency management
 - **CMake 3.24+** — Build system
+- **Ninja** — Required by the Conan-generated presets (`brew install ninja` on macOS)
 
 ### 1. Install dependencies
 
 ```bash
-conan install . --output-folder=build --build=missing
+# Debug
+conan install . --output-folder=cmake-build-debug/conan --build=missing
+
+# Release (note: --output-folder=build, not build/build/Release — cmake_layout nests automatically)
+conan install . --output-folder=build --build=missing -s build_type=Release
 ```
 
 ### 2. Configure & build
 
 ```bash
-# Use Conan preset (recommended)
+# Debug — binary at cmake-build-debug/conan/build/Debug/brainio
+cmake --preset conan-debug
+cmake --build --preset conan-debug
+
+# Release — binary at build/build/Release/brainio
 cmake --preset conan-release
-cmake --build build/build/Release
-```
-
-Or manually:
-
-```bash
-cmake -S . -B build \
-  -DCMAKE_TOOLCHAIN_FILE=build/build/Release/generators/conan_toolchain.cmake \
-  -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+cmake --build --preset conan-release
 ```
 
 ### 3. Run
 
 ```bash
 # Batch mode (process entire file offline)
-./build/build/Release/brainio -i sounds/source.wav -t sounds/target.wav
+./cmake-build-debug/conan/build/Debug/brainio -i sounds/source.wav -t sounds/target.wav
+
+# With a video source (audio similarity + video playback output)
+./cmake-build-debug/conan/build/Debug/brainio -v sounds/source.mp4 -t sounds/target.wav
 
 # Stream mode (real-time looping playback)
-./build/build/Release/brainio stream -i sounds/source.wav -t sounds/target.wav
+./cmake-build-debug/conan/build/Debug/brainio stream -i sounds/source.wav -t sounds/target.wav
 
 # Infinite mode (generative soundscapes)
-./build/build/Release/brainio infinite -d sounds/SAMPLES/
+./cmake-build-debug/conan/build/Debug/brainio infinite -d sounds/SAMPLES/
 
 # UI mode (interactive browser control)
-./build/build/Release/brainio ui -d sounds/SAMPLES/
+./cmake-build-debug/conan/build/Debug/brainio ui -d sounds/SAMPLES/
 # Open web/control-panel.html in browser, connect to ws://localhost:7770
 ```
 
@@ -82,6 +86,9 @@ cmake --build build --config Release
 # WebSocket UI (default: ON) — enables real-time parameter control
 -DBRAINIO_BUILD_UI=ON
 
+# Video I/O (default: ON) — uses avcpp/FFmpeg; disable for audio-only or iOS builds
+-DBRAINIO_BUILD_VIDEO=ON
+
 # CLI executable (default: ON)
 -DBRAINIO_BUILD_CLI=ON
 ```
@@ -89,7 +96,7 @@ cmake --build build --config Release
 Set any to `OFF` to exclude from the build. For a library-only build (e.g., iOS):
 
 ```bash
-cmake ... -DBRAINIO_BUILD_IO=OFF -DBRAINIO_BUILD_PLAYBACK=OFF -DBRAINIO_BUILD_UI=OFF -DBRAINIO_BUILD_CLI=OFF
+cmake ... -DBRAINIO_BUILD_IO=OFF -DBRAINIO_BUILD_PLAYBACK=OFF -DBRAINIO_BUILD_UI=OFF -DBRAINIO_BUILD_VIDEO=OFF -DBRAINIO_BUILD_CLI=OFF
 ```
 
 ### Build Targets
@@ -97,9 +104,10 @@ cmake ... -DBRAINIO_BUILD_IO=OFF -DBRAINIO_BUILD_PLAYBACK=OFF -DBRAINIO_BUILD_UI
 The CMake build produces these library targets:
 
 - **brainio-core** — Domain logic (zero external dependencies)
-- **brainio-fft** — FFT adapter (PocketFFT or FFTW)
+- **brainio-fft** — FFT adapter (PocketFFT)
 - **brainio-io** — File I/O adapter (dr_libs, optional)
 - **brainio-playback** — Audio playback adapter (miniaudio, optional)
+- **brainio-video** — Video I/O adapter (avcpp/FFmpeg, optional)
 - **brainio-capi** — C-compatible API for XCFramework/Swift
 - **brainio** — CLI executable (optional)
 
@@ -115,6 +123,7 @@ cmake -S . -B build \
   -DBRAINIO_BUILD_IO=OFF \
   -DBRAINIO_BUILD_PLAYBACK=OFF \
   -DBRAINIO_BUILD_UI=OFF \
+  -DBRAINIO_BUILD_VIDEO=OFF \
   -DBRAINIO_BUILD_CLI=OFF
 
 cmake --build build
@@ -156,9 +165,9 @@ docker compose up -d
 docker compose exec dev bash
 
 # Inside container
-conan install . --output-folder=build --build=missing
-cmake --preset conan-release
-cmake --build build/build/Release
+conan install . --output-folder=cmake-build-debug/conan --build=missing
+cmake --preset conan-debug
+cmake --build --preset conan-debug
 ```
 
 ---
@@ -175,13 +184,17 @@ Modes:
   ui          Interactive mode with WebSocket control
 
 Options:
-  -i <file>   Add individual source file to brain
-  -d <dir>    Add all audio files in directory to brain
+  -i <file>   Add individual audio source file to brain
+  -v <file>   Add video source to brain (audio extracted for matching;
+              video segments played back for matched blocks)
+  -d <dir>    Add all audio/video files in directory to brain
   -t <file>   Target audio file (not used in infinite mode)
+  -o <file>   Output WAV file path (batch mode, default: target_sound.wav)
   -r <file>   Record output to WAV file (stream/infinite only)
 
 Examples:
   brainio -i a.wav -i b.wav -t target.wav
+  brainio -v source.mp4 -t target.wav
   brainio stream -d sounds/ -t target.wav -r out.wav
   brainio infinite -d sounds/
   brainio ui -d sounds/
@@ -215,12 +228,12 @@ All `SearchParams` are exposed: alpha, stickyness, usage, blend ratios, granular
 ┌─────────┐  ┌─────────┐  ┌─────────┐
 │ Adapters│  │Use-cases│  │ Domain  │
 │         │  │         │  │  Core   │
-│ FFTW    │  │Sound    │  │ Brain   │
-│ PocketFFT│  │Processor│  │ Block   │
-│ dr_libs │  │Stream   │  │ Sound   │
-│libsndfile│  │Processor│  │ Ports   │
-│miniaudio│  │         │  │         │
-│ixwebskt │  └─────────┘  └─────────┘
+│ PocketFFT│  │Sound    │  │ Brain   │
+│ dr_libs │  │Processor│  │ Block   │
+│miniaudio│  │Stream   │  │ Sound   │
+│ixwebskt │  │Processor│  │ Ports   │
+│FfmpegSrc│  │         │  │         │
+│FfmpegOut│  └─────────┘  └─────────┘
 └─────────┘
 ```
 
@@ -237,6 +250,7 @@ All managed via Conan:
 - **[miniaudio](https://miniaud.io)** — Cross-platform audio playback
 - **[ixwebsocket](https://github.com/machinezone/IXWebSocket)** — WebSocket server
 - **[readerwriterqueue](https://github.com/cameron314/readerwriterqueue)** — Lock-free SPSC ring buffer
+- **[avcpp](https://github.com/h4tr3d/avcpp)** (v2.7.1) — C++ wrapper for FFmpeg; used for video file I/O and encoding (`BRAINIO_BUILD_VIDEO`)
 - **Aquila** (in-tree, `src/aquila/`) — Mel filter bank
 
 ---
@@ -248,21 +262,8 @@ All managed via Conan:
 This error means the CMake cache still has the UI disabled. You must **reconfigure CMake** with the option:
 
 ```bash
-# Reconfigure with UI enabled
-cmake -S . -B build/build/Release \
-  -DCMAKE_TOOLCHAIN_FILE=build/build/Release/generators/conan_toolchain.cmake \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DBRAINIO_BUILD_UI=ON
-
-# Rebuild
-cmake --build build/build/Release
-```
-
-Or use the preset method:
-
-```bash
-cmake --preset conan-release -DBRAINIO_BUILD_UI=ON
-cmake --build build/build/Release
+cmake --preset conan-debug -DBRAINIO_BUILD_UI=ON
+cmake --build --preset conan-debug
 ```
 
 ### "Address already in use" (port 7770)

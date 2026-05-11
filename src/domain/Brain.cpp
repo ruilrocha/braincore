@@ -19,7 +19,8 @@ Brain::Brain(std::shared_ptr<port::IAnalyser>      analyser,
 
 // ── Ingestion ──────────────────────────────────────────────────────────
 
-void Brain::addSound(const Sound& sound, const std::string& name) {
+void Brain::addSound(const Sound& sound, const std::string& name,
+                     std::optional<VideoMetadata> video) {
     if (sound.getNumChannels() == 0) return;
 
     const Channel& ch0 = sound.getChannel(0);
@@ -35,9 +36,25 @@ void Brain::addSound(const Sound& sound, const std::string& name) {
 
     const int num_channels = sound.getNumChannels();
 
-    for (std::size_t i = 0; i < ch0.size(); i += step) {
+    // Block duration in seconds (used to stamp video offsets).
+    const double block_duration_sec =
+        static_cast<double>(config_.block_size) / static_cast<double>(sample_rate);
+    const double step_sec =
+        static_cast<double>(step) / static_cast<double>(sample_rate);
+
+    std::size_t block_index = 0;
+    for (std::size_t i = 0; i < ch0.size(); i += step, ++block_index) {
         Block block;
         block.source_name = name;
+
+        // ── Video metadata ─────────────────────────────────────────────
+        if (video.has_value()) {
+            block.video = VideoSegment{
+                video->path,
+                video->start_offset_seconds + static_cast<double>(block_index) * step_sec,
+                block_duration_sec
+            };
+        }
 
         // Determine how many samples are available from this position.
         const auto available = std::min(bs, ch0.size() - i);
@@ -66,9 +83,9 @@ void Brain::addSound(const Sound& sound, const std::string& name) {
 
         // ── Compute raw fingerprints via the generic analyse() port ────
         auto raw_fp = analyser_->analyse(windowed, sample_rate);
-        block.mfcc             = std::move(raw_fp.mfcc);
-        block.spectral   = std::move(raw_fp.spectral);
-        block.dominant_freq           = raw_fp.dominant_freq;
+        block.mfcc           = std::move(raw_fp.mfcc);
+        block.spectral       = std::move(raw_fp.spectral);
+        block.dominant_freq  = raw_fp.dominant_freq;
 
         // ── Compute normalised fingerprints ────────────────────────────
         std::vector<double> norm_samples = raw_samples;
@@ -76,8 +93,8 @@ void Brain::addSound(const Sound& sound, const std::string& name) {
         WindowFunction::apply(norm_samples, config_.window);
 
         auto norm_fp = analyser_->analyse(norm_samples, sample_rate);
-        block.normalised_mfcc           = std::move(norm_fp.mfcc);
-        block.normalised_spectral = std::move(norm_fp.spectral);
+        block.normalised_mfcc      = std::move(norm_fp.mfcc);
+        block.normalised_spectral  = std::move(norm_fp.spectral);
 
         // Store mono samples (windowed version is only for analysis).
         block.samples = std::move(raw_samples);

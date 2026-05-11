@@ -20,6 +20,10 @@
 #include "adapter/gateway/DrLibsGateway.h"
 #include "adapter/gateway/DrLibsRecorder.h"
 #include "adapter/playback/MiniaudioOutput.h"
+#ifdef BRAINIO_HAS_VIDEO
+#include "adapter/video/FfmpegVideoSource.h"
+#include "adapter/video/FfmpegVideoOutput.h"
+#endif
 
 // Domain (innermost layer)
 #include "domain/BlockConfig.h"
@@ -51,6 +55,7 @@ static void printUsage(const char* prog) {
         "\n"
         "Options:\n"
         "  -i <path>  Brain source sound (repeatable, at least one required)\n"
+        "  -v <path>  Brain source video (audio extracted; video played back for matched blocks)\n"
         "  -d <dir>   Load all audio files in a directory as brain sources\n"
         "  -t <path>  Target sound (required for batch and stream modes)\n"
         "  -o <path>  Output file path (default: sounds/target.wav)\n"
@@ -62,8 +67,9 @@ static void printUsage(const char* prog) {
         "  {} stream -d sounds/brain/ -t sounds/target.wav\n"
         "  {} infinite -d sounds/brain/\n"
         "  {} stream -i sounds/a.wav -t sounds/target.wav -r recording.wav\n"
-        "  {} ui -d sounds/SAMPLES/\n",
-        prog, prog, prog, prog, prog, prog);
+        "  {} ui -d sounds/SAMPLES/\n"
+        "  {} -v myvideo.mp4 -t sounds/target.wav  (requires BRAINIO_BUILD_VIDEO=ON)\n",
+        prog, prog, prog, prog, prog, prog, prog);
 }
 
 // ── Signal handler for graceful Ctrl+C shutdown ────────────────────────
@@ -79,7 +85,16 @@ int main(int argc, char* argv[]) {
     // ── CLI argument parsing ───────────────────────────────────────────
     enum class Mode { Batch, Stream, Infinite, Ui };
     auto mode = Mode::Batch;
-    std::vector<std::string> brain_paths;
+
+#ifdef BRAINIO_HAS_VIDEO
+std::cout << "Video support enabled (BRAINIO_BUILD_VIDEO=ON)\n";
+#endif
+
+    struct BrainSource {
+        std::string path;
+        bool is_video = false;
+    };
+    std::vector<BrainSource> brain_sources;
     std::string target_path;
     std::string output_path = "sounds/target.wav";
     std::string recording_path;
@@ -93,7 +108,17 @@ int main(int argc, char* argv[]) {
         }
         if (arg == "-i") {
             if (++i >= argc) { std::cerr << "Error: -i requires a path argument.\n"; return 1; }
-            brain_paths.emplace_back(argv[i]);
+            brain_sources.push_back({argv[i], false});
+            continue;
+        }
+        if (arg == "-v") {
+#ifdef BRAINIO_HAS_VIDEO
+            if (++i >= argc) { std::cerr << "Error: -v requires a path argument.\n"; return 1; }
+            brain_sources.push_back({argv[i], true});
+#else
+            std::cerr << "Error: -v requires BRAINIO_BUILD_VIDEO=ON at build time.\n";
+            return 1;
+#endif
             continue;
         }
         if (arg == "-d") {
@@ -103,18 +128,20 @@ int main(int argc, char* argv[]) {
                 std::cerr << std::format("Error: '{}' is not a directory.\n", argv[i]);
                 return 1;
             }
+            std::vector<std::string> paths;
             for (const auto& entry : std::filesystem::directory_iterator(dir)) {
                 if (entry.is_regular_file() && isAudioFile(entry.path())) {
-                    brain_paths.push_back(
+                    paths.push_back(
                         std::filesystem::relative(entry.path(), PROJECT_ROOT).string());
                 }
             }
-            if (brain_paths.empty()) {
+            if (paths.empty()) {
                 std::cerr << std::format("Warning: no audio files found in '{}'\n", argv[i]);
             } else {
-                std::ranges::sort(brain_paths);
+                std::ranges::sort(paths);
+                for (auto& p : paths) brain_sources.push_back({std::move(p), false});
                 std::cout << std::format("Loaded {} audio file(s) from '{}'\n",
-                                         brain_paths.size(), argv[i]);
+                                         paths.size(), argv[i]);
             }
             continue;
         }
@@ -146,8 +173,8 @@ int main(int argc, char* argv[]) {
     }
 
     // ── Validate required inputs ───────────────────────────────────────
-    if (brain_paths.empty()) {
-        std::cerr << "Error: at least one brain source is required (-i <path> or -d <dir>).\n";
+    if (brain_sources.empty()) {
+        std::cerr << "Error: at least one brain source is required (-i <path>, -v <path>, or -d <dir>).\n";
         printUsage(argv[0]);
         return 1;
     }
@@ -174,32 +201,56 @@ int main(int argc, char* argv[]) {
     // ── Search parameters ──────────────────────────────────────────────
     audio::SearchParams params;
     params.alpha = 1.0;  params.stickyness = 0.6;  params.overlap = 0;
-    params.usage_falloff = 1.0;  params.usage_weight = 0.8;
+    params.usage_falloff = 0.8;  params.usage_weight = 0.8;
     params.blend_ratio = 1.0;  params.n_ratio = 0.7;
     params.spectral_start = 0;  params.spectral_end = 100;
     params.momentum = 0.0;  params.momentum_decay = 0.95;
     params.grain_size = 1.0;  params.grain_scatter = 0.0;  params.grain_density = 1.0;
     params.grain_size_variation = 0.1;  params.grain_amp_variation = 0.3;
     params.grain_pitch_jitter = 0.2;  params.grain_hop_randomness = 0.2;
-    params.spectral_morph = 0.2;
+    params.spectral_morph = 0.0;
     params.stutter_chance = 0.0;  params.stutter_count = 2;
     params.envelope_shape = 0;  params.envelope_amount = 0.0;
 
     int num_synapses = 1000;
 
+    // ── Default sample rate / channels (refined after first source loads) ─
+    int default_sr = 44100;
+    int default_ch = 2;
+
+#ifdef BRAINIO_HAS_VIDEO
+    // Shared video source adapter — used both in buildBrain and batch output wiring.
+    auto video_source = std::make_shared<audio::adapter::video::FfmpegVideoSource>(4, 44100);
+#endif
+
     // ── Helper: load sounds into brain ─────────────────────────────────
     auto buildBrain = [&]() -> audio::Brain {
         audio::Brain brain(analyser, search, source_config);
-        for (const auto& rel_path : brain_paths) {
-            const std::string full_path = resolvePath(rel_path);
+        for (const auto& src : brain_sources) {
+            const std::string full_path = resolvePath(src.path);
+
+#ifdef BRAINIO_HAS_VIDEO
+            if (src.is_video) {
+                auto sound = video_source->loadAudio(full_path);
+                if (!sound) {
+                    std::cerr << std::format("Failed to extract audio from video: {}\n", full_path);
+                    continue;
+                }
+                std::cout << std::format("Video source '{}': {} ch, {} samples, {} Hz\n",
+                    src.path, sound->getNumChannels(), sound->getNumSamples(), sound->getSampleRate());
+                brain.addSound(*sound, src.path,
+                               audio::VideoMetadata{full_path, 0.0});
+                continue;
+            }
+#endif
             auto sound = gateway.loadSound(full_path);
             if (!sound) {
                 std::cerr << std::format("Failed to load brain sound: {}\n", full_path);
                 continue;
             }
             std::cout << std::format("Brain source '{}': {} ch, {} samples, {} Hz\n",
-                rel_path, sound->getNumChannels(), sound->getNumSamples(), sound->getSampleRate());
-            brain.addSound(*sound, rel_path);
+                src.path, sound->getNumChannels(), sound->getNumSamples(), sound->getSampleRate());
+            brain.addSound(*sound, src.path);
         }
         if (current_search_name == "synaptic" || current_search_name == "markov") {
             std::cout << std::format("Building synapses ({})...\n", num_synapses);
@@ -217,10 +268,17 @@ int main(int argc, char* argv[]) {
     std::cout << std::format("Brain ready: {} blocks\n", brain.size());
 
     // ── Probe sample rate and channels from first source ───────────────
-    int default_sr = 44100;
-    int default_ch = 2;
-    if (!brain.blocks().empty() && !brain.sources().empty()) {
-        if (auto probe = gateway.loadSound(resolvePath(brain_paths[0]))) {
+    if (!brain_sources.empty()) {
+        const auto& first = brain_sources[0];
+#ifdef BRAINIO_HAS_VIDEO
+        if (first.is_video) {
+            if (auto probe = video_source->loadAudio(resolvePath(first.path))) {
+                default_sr = probe->getSampleRate();
+                default_ch = probe->getNumChannels();
+            }
+        } else
+#endif
+        if (auto probe = gateway.loadSound(resolvePath(first.path))) {
             default_sr = probe->getSampleRate();
             default_ch = probe->getNumChannels();
         }
@@ -507,8 +565,32 @@ int main(int argc, char* argv[]) {
     // ════════════════════════════════════════════════════════════════════
     // ── Mode: Batch processing (default) ───────────────────────────────
     // ════════════════════════════════════════════════════════════════════
-    audio::usecase::SoundProcessor processor(params, target_config, spectral_morph);
+    std::shared_ptr<audio::port::IVideoOutput> video_out;
+#ifdef BRAINIO_HAS_VIDEO
+    {
+        const bool has_video_sources = std::ranges::any_of(
+            brain_sources, [](const auto& s) { return s.is_video; });
+        if (has_video_sources) {
+            auto video_out_path =
+                std::filesystem::path(resolvePath(output_path))
+                    .replace_extension(".mp4").string();
+            int vw = 1280, vh = 720;
+            double vfps = 25.0, vdur = 0.0;
+            auto it = std::ranges::find_if(brain_sources,
+                                           [](const auto& s) { return s.is_video; });
+            if (it != brain_sources.end()) {
+                std::ignore = video_source->getInfo(resolvePath(it->path), vw, vh, vfps, vdur);
+            }
+            video_out = std::make_shared<audio::adapter::video::FfmpegVideoOutput>(
+                video_source, video_out_path, vw, vh, vfps);
+            std::cout << std::format("Video output: {}\n", video_out_path);
+        }
+    }
+#endif
+
+    audio::usecase::SoundProcessor processor(params, target_config, spectral_morph, video_out);
     audio::Sound result = processor.process(brain, *target);
+    if (video_out) video_out->close();
 
     const std::string output_full = resolvePath(output_path);
     std::cout << "Saving reconstructed sound...\n";

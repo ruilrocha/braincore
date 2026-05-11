@@ -12,13 +12,14 @@ spectral morphing) can be applied during reconstruction.
 ## High-Level Information
 - **Project Type:** C++ application — audio processing and mangling.
 - **Primary Language:** C++23
-- **Build Tool:** Conan (version 2.0.5), CMake (version 3.24)
+- **Build Tool:** Conan (version 2.x), CMake (version 3.24+), **Ninja** (required by Conan presets — `brew install ninja`)
 - **Frameworks / Libraries:**
-  - **libsndfile** (v1.2.2) — audio file I/O (WAV, FLAC, etc.)
-  - **FFTW** (v3.3.10) — real-to-complex FFT for spectral analysis
+  - **PocketFFT** (header-only) — FFT + DCT for spectral analysis
+  - **dr_libs** (header-only) — audio file I/O (WAV, FLAC, MP3)
   - **miniaudio** (v0.11.18) — cross-platform audio playback (real-time output)
   - **ixwebsocket** (v11.4.5) — WebSocket server for real-time parameter control
-  - **Aquila** (in-tree, `src/aquila/`) — Mel filter bank and DCT
+  - **avcpp** (v2.7.1) — C++ wrapper for FFmpeg; video I/O and encoding (`BRAINIO_BUILD_VIDEO`)
+  - **Aquila** (in-tree, `src/aquila/`) — Mel filter bank
 - **Header guards:** Use `#pragma once` (not `#ifndef`).
 - **Linting/Formatting:** None configured yet; follow Google C++ Style Guide.
 - **Testing:** None yet; plan to use Google Test.
@@ -30,13 +31,25 @@ spectral morphing) can be applied during reconstruction.
 
 ### Bootstrap/Setup
 - C++23-capable compiler required (Clang 16+, GCC 13+, MSVC 17.6+).
+- **Ninja** required: `brew install ninja` (macOS) or `apt install ninja-build` (Linux).
 - No manual dependency installation — Conan handles everything.
 
-### Build
+### Build (preferred — Conan preset)
 ```sh
-conan install . --output-folder=build --build=missing
+# Debug — binary at cmake-build-debug/conan/build/Debug/brainio
+conan install . --output-folder=cmake-build-debug/conan --build=missing
+cmake --preset conan-debug
+cmake --build --preset conan-debug
+
+# Release — binary at build/build/Release/brainio
+# IMPORTANT: use --output-folder=build (not build/build/Release);
+# cmake_layout nests the generators automatically.
+conan install . --output-folder=build --build=missing -s build_type=Release
+cmake --preset conan-release
+cmake --build --preset conan-release
 ```
-Produces the executable at `cmake-build-debug/brainio`.
+
+The available presets are `conan-debug` and `conan-release` (run `cmake --list-presets`).
 
 ### Path Resolution
 The CMake build injects `PROJECT_ROOT` as a compile definition so the binary
@@ -46,9 +59,8 @@ project root.
 
 ### Run
 ```sh
-./cmake-build-debug/brainio
+./cmake-build-debug/conan/build/Debug/brainio -i sounds/a.wav -t sounds/target.wav
 ```
-Loads brain sources and a target from `sounds/`, writes output to `sounds/target_sound.wav`.
 
 ### Test
 TBD — Google Test integration planned.
@@ -74,9 +86,11 @@ main.cpp                                ← Composition Root (wires adapters →
   │     ├── analysis/MfccAnalyser       ← implements port::IAnalyser
   │     ├── control/WebSocketParamController ← implements port::IParamController
   │     ├── effects/FftwSpectralMorph   ← implements port::IBlockEffect
-  │     ├── gateway/LibSndFileGateway   ← implements port::ISoundFileGateway
-  │     ├── gateway/LibSndFileRecorder  ← implements port::IRecorder
+  │     ├── gateway/DrLibsGateway       ← implements port::ISoundFileGateway
+  │     ├── gateway/DrLibsRecorder      ← implements port::IRecorder
   │     ├── playback/MiniaudioOutput    ← implements port::IAudioOutput
+  │     ├── video/FfmpegVideoSource     ← implements port::IVideoSource
+  │     ├── video/FfmpegVideoOutput     ← implements port::IVideoOutput
   │     └── search/                     ← implements port::ISearchStrategy
   │           ├── ClosestSearch         ←   brute-force closest match
   │           ├── ReverseSearch         ←   furthest match (glitch effect)
@@ -101,6 +115,8 @@ main.cpp                                ← Composition Root (wires adapters →
   │     ├── SearchParams                ← value object (all UI-controllable parameters)
   │     ├── Random.h                    ← thread-safe random utilities (replaces std::rand)
   │     ├── SourceSound                 ← metadata for loaded sounds
+  │     ├── VideoFrame                  ← RGB24 decoded video frame with timestamp
+  │     ├── VideoSegment                ← time-bounded reference to a source video file
   │     ├── constants.h                 ← shared constexpr defaults
   │     └── port/                       ← PORT INTERFACES
   │           ├── IAnalyser             ←   fingerprint computation (compute + analyse)
@@ -109,19 +125,21 @@ main.cpp                                ← Composition Root (wires adapters →
   │           ├── IAudioOutput          ←   real-time audio playback
   │           ├── IBlockEffect          ←   block-pair effect processing (e.g. spectral morph)
   │           ├── IParamController      ←   live params + commands (pollCommand/getParams/setParams)
-  │           └── IRecorder             ←   incremental audio recording (open/write/close)
+  │           ├── IRecorder             ←   incremental audio recording (open/write/close)
+  │           ├── IVideoSource          ←   video file reading (loadAudio, readSegment, getInfo)
+  │           └── IVideoOutput          ←   video frame writing (onBlock, close)
   │
   ├── web/                              ← BROWSER CONTROL PANEL
   │     └── control-panel.html          ← HTML/JS WebSocket client for live param control
   │
-  └── src/aquila/                       ← in-tree DSP library (MelFilterBank, DCT)
+  └── src/aquila/                       ← in-tree DSP library (MelFilterBank)
 ```
 
 ### Dependency Rules
 - **domain/** depends on **nothing** outside itself (ports are interfaces inside domain).
 - **usecase/** depends on **domain/** types only.
 - **adapter/** depends on **domain/port/** interfaces and may depend on external libs
-  (FFTW, libsndfile, Aquila).
+  (PocketFFT, dr_libs, avcpp/FFmpeg, Aquila).
 - **main.cpp** is the Composition Root — it wires concrete adapters into domain ports.
 
 ### Data Flow
@@ -167,7 +185,7 @@ main.cpp                                ← Composition Root (wires adapters →
 | File | Description |
 |------|-------------|
 | `Sound.h / .cpp` | Immutable multi-channel audio container. |
-| `Block.h` | Value type: samples, channel_samples, fingerprint, secondary_fingerprint, normalised variants, dominant_freq, usage, synapses. |
+| `Block.h` | Value type: samples, channel_samples, fingerprint, secondary_fingerprint, normalised variants, dominant_freq, usage, synapses, video (optional VideoSegment). |
 | `Brain.h / .cpp` | Core aggregate. Constructor: `Brain(analyser, search, BlockConfig)`. Methods: `addSound()`, `findBestMatch()`, `buildSynapses()`, `jiggle()`, `depleteUsage()`, `activateSound()`, `isBlockActive()`. |
 | `Command.h` | Value object: `std::variant<StartCommand, StopCommand, RecordCommand, RebuildCommand>`. Used by UI mode to send lifecycle actions from the controller to the main event loop. |
 | `Fingerprints.h` | Value object: `primary`, `secondary`, `normalised_primary`, `normalised_secondary`, `dominant_freq`. |
@@ -176,6 +194,8 @@ main.cpp                                ← Composition Root (wires adapters →
 | `SearchParams.h` | All UI-controllable parameters — see SearchParams section below. |
 | `Random.h` | Thread-safe random utilities (`rng::randomDouble()`, `rng::randomIndex(n)`) using `std::mt19937`. Replaces all `std::rand()` usage. |
 | `constants.h` | `kDefaultBlockSize` (4096), `kDefaultNumMfcc` (12), `kDefaultMelBankSize` (24), `kDefaultAlpha` (1.0). |
+| `VideoFrame.h` | RGB24 decoded video frame: `width`, `height`, `pixels`, `timestamp_seconds`. `VideoFrame::black(w,h)` creates a zeroed frame for audio-only blocks. |
+| `VideoSegment.h` | `VideoSegment` — `source_path`, `offset_seconds`, `duration_seconds`. Stored on Block when sourced from video. `VideoMetadata` — associates a loaded audio track with its originating video file. |
 | `port/IAnalyser.h` | Port: `compute(block, sr)` → primary fingerprint; `analyse(block, sr)` → full Fingerprints bundle; `distance(a, b)` → double. |
 | `port/ISearchStrategy.h` | Port: `search(target_fp, blocks, analyser, params, current_idx)` → index. |
 | `port/ISoundFileGateway.h` | Port: `loadSound(path)`, `saveSound(path, sound)`. |
@@ -183,6 +203,8 @@ main.cpp                                ← Composition Root (wires adapters →
 | `port/IBlockEffect.h` | Port: `apply(prev, current, amount)` — block-pair effect processing. |
 | `port/IParamController.h` | Port: `start()`, `stop()`, `getParams()`, `setParams()`, `pollCommand()`, `setConfigState()` — live parameter control and command queue. |
 | `port/IRecorder.h` | Port: `open(path, sr, ch)`, `write(samples)`, `close()` — incremental audio recording. |
+| `port/IVideoSource.h` | Port: `loadAudio(path)` → Sound; `getInfo(path, w, h, fps, dur)` → bool; `readFrame(path, t)` → optional VideoFrame; `readSegment(path, start, end)` → vector of VideoFrames. |
+| `port/IVideoOutput.h` | Port: `onBlock(segment, duration_sec)` — called per output block with optional VideoSegment; `close()` — flush and finalise output. |
 
 ### `src/usecase/` — Application Use-Cases
 | File | Description |
@@ -199,8 +221,8 @@ main.cpp                                ← Composition Root (wires adapters →
 ### `src/adapter/gateway/` — Gateway Adapters
 | File | Description |
 |------|-------------|
-| `LibSndFileGateway.h / .cpp` | Implements `ISoundFileGateway` using libsndfile. Reads/writes WAV. |
-| `LibSndFileRecorder.h / .cpp` | Implements `IRecorder` using libsndfile. Writes WAV (PCM 24-bit) incrementally via `sf_writef_double` for arbitrarily long recordings. |
+| `DrLibsGateway.h / .cpp` | Implements `ISoundFileGateway` using dr_libs. Reads/writes WAV, FLAC, MP3. |
+| `DrLibsRecorder.h / .cpp` | Implements `IRecorder` using dr_libs. Writes WAV (PCM 24-bit) incrementally for arbitrarily long recordings. |
 
 ### `src/adapter/control/` — Control Adapters
 | File | Description |
@@ -222,7 +244,13 @@ main.cpp                                ← Composition Root (wires adapters →
 ### `src/adapter/effects/` — Effects Adapters
 | File | Description |
 |------|-------------|
-| `FftwSpectralMorph.h / .cpp` | Implements `IBlockEffect`. Spectral morphing via FFTW: interpolates magnitudes and blends phases in the frequency domain with RMS matching. |
+| `PocketfftSpectralMorph.h / .cpp` | Implements `IBlockEffect`. Spectral morphing via PocketFFT: interpolates magnitudes and blends phases in the frequency domain with RMS matching. |
+
+### `src/adapter/video/` — Video Adapters (optional, `BRAINIO_BUILD_VIDEO`)
+| File | Description |
+|------|-------------|
+| `FfmpegVideoSource.h / .cpp` | Implements `IVideoSource` using avcpp/FFmpeg. Extracts audio tracks, queries metadata, decodes video frames. Smart seek: avoids per-block seek+flush for sequential reads; H264-safe 2-second pre-roll seek for backward/random jumps. Per-path `VideoCtx` cache with buffered break-frame for efficient time-window reads. |
+| `FfmpegVideoOutput.h / .cpp` | Implements `IVideoOutput` using avcpp/FFmpeg. Encodes RGB24 frames to H264/MP4. Accumulator-based frame count ensures video duration exactly tracks submitted audio time. Encoder timebase `1/90000` with explicit per-packet duration fixes the last-frame stts entry. |
 
 ### `src/adapter/playback/` — Playback Adapters
 | File | Description |
@@ -235,7 +263,6 @@ main.cpp                                ← Composition Root (wires adapters →
 | `global.h` | Typedefs: `SampleType`, `FrequencyType`, `ComplexType`, `SpectrumType`. |
 | `filter/MelFilter.h / .cpp` | Single triangular Mel filter. |
 | `filter/MelFilterBank.h / .cpp` | Bank of Mel filters; `applyAll(spectrum)` returns filter energies. |
-| `transform/Dct.h / .cpp` | Discrete Cosine Transform with cosine cache; `dct(data, outputLength)`. |
 
 ---
 
@@ -274,9 +301,9 @@ All parameters are designed to be bound to UI sliders/knobs:
 ## Key Design Decisions
 
 1. **Hexagonal architecture** — Domain core has zero outward dependencies.
-2. **Seven port interfaces** — `IAnalyser`, `ISearchStrategy`, `ISoundFileGateway`,
-   `IAudioOutput`, `IBlockEffect`, `IParamController`, `IRecorder` are pure-virtual
-   classes in `domain/port/`.
+2. **Nine port interfaces** — `IAnalyser`, `ISearchStrategy`, `ISoundFileGateway`,
+   `IAudioOutput`, `IBlockEffect`, `IParamController`, `IRecorder`, `IVideoSource`,
+   `IVideoOutput` are pure-virtual classes in `domain/port/`.
 3. **Generic IAnalyser port** — The port exposes `compute()`, `analyse()`, and
    `distance()` without naming any specific technique (MFCC, FFT).  Concrete
    adapters decide what primary/secondary fingerprints represent.
@@ -328,16 +355,34 @@ All parameters are designed to be bound to UI sliders/knobs:
     connects via WebSocket and sends JSON `{"param":"name","value":0.5}` messages.
     `StreamProcessor` snapshots params from the controller every block via
     `activeParams()`, enabling real-time parameter tweaking during playback.
-23. **Output recording** — `LibSndFileRecorder` adapter implements `IRecorder`,
+23. **Output recording** — `DrLibsRecorder` adapter implements `IRecorder`,
     writing WAV (PCM 24-bit) incrementally. `StreamProcessor::outputBlock()`
     tees interleaved audio to the recorder. Enabled via `-r <path>` CLI flag.
+24. **Video I/O** — `IVideoSource` / `IVideoOutput` ports decouple video logic from
+    the domain. Similarity matching is always audio-only (MFCC); the matched block's
+    `VideoSegment` is passed to `IVideoOutput::onBlock()` to write the corresponding
+    video clip. Audio-only blocks receive `nullopt` → black frame. The CLI adapter
+    uses avcpp/FFmpeg; a Swift app can implement the ports natively with AVFoundation.
+25. **Video sync accuracy** — `FfmpegVideoOutput` uses an integer-accumulator to emit
+    exactly `round(total_audio_time × fps) − frames_already_emitted` frames per block,
+    preventing drift over long outputs. Encoder timebase `1/90000`; explicit per-packet
+    `duration` in the encoder's actual timebase fixes the stts last-frame entry so all
+    frame deltas are uniform (no zero-duration tail frame).
+26. **Smart video seek** — `FfmpegVideoSource::readSegment()` avoids per-block seek+flush
+    for sequential reads (just decodes forward). For backward/random jumps it seeks to
+    `max(0, start − 2s)` for H264 pre-roll, then skips frames until `pts + frame_dur >
+    start_seconds`. A `buffered_vf` break-frame prevents redundant seeks between
+    adjacent calls.
 
 ## Additional Notes
 - **Dependencies:** Managed via Conan and `conandata.yml`.
 - **Do not manually edit files in `build/` or `cmake-build-debug/` directories.**
-- **Adding a brain source:** use `-i <path>` for individual files or `-d <dir>` to
-  load all audio files in a directory. Supported formats: WAV, FLAC, OGG, AIF/AIFF,
-  W64, RF64, RAW, CAF, MP3.
+- **Adding a brain source:** use `-i <path>` for individual audio files, `-v <path>` for
+  video files (audio extracted automatically), or `-d <dir>` to load all audio/video files
+  in a directory. Supported audio: WAV, FLAC, OGG, AIF/AIFF, W64, RF64, RAW, CAF, MP3.
+  Supported video: any format FFmpeg can decode (MP4, MOV, MKV, …).
+- **Video output:** when any `-v` source is present, batch mode automatically writes a
+  matched video file alongside the output WAV (same base name, `.mp4` extension).
 - **Changing search strategy:** replace `ClosestSearch` with any other search adapter
   in `main.cpp` (one-line swap). For `SynapticSearch` or `MarkovChainSearch`, call
   `brain.buildSynapses()` after loading all sounds.
@@ -346,9 +391,13 @@ All parameters are designed to be bound to UI sliders/knobs:
 - **Live parameter control:** In stream/infinite mode, a WebSocket server starts on
   port 7770 automatically. Open `web/control-panel.html` in a browser and connect to
   `ws://localhost:7770` to control all SearchParams via sliders in real-time.
+- **Disabling video for iOS/library builds:** pass `-DBRAINIO_BUILD_VIDEO=OFF`; this
+  removes the avcpp/FFmpeg dependency entirely. Implement `IVideoSource` / `IVideoOutput`
+  natively in the host app instead.
 - **CLI examples:**
   ```sh
-  ./brainio -i sounds/a.wav -t sounds/target.wav                    # batch
+  ./brainio -i sounds/a.wav -t sounds/target.wav                    # batch (audio)
+  ./brainio -v sounds/clip.mp4 -t sounds/target.wav                 # batch (video)
   ./brainio stream -d sounds/SAMPLES/ -t sounds/target.wav          # stream
   ./brainio infinite -d sounds/SAMPLES/                             # infinite
   ./brainio stream -i sounds/a.wav -t sounds/t.wav -r rec.wav      # stream + record
@@ -362,3 +411,4 @@ All parameters are designed to be bound to UI sliders/knobs:
 - **Document any new or changed build/test steps in this file.**
 - **Use `#pragma once` for all new headers.**
 - **Keep the IAnalyser port generic — no analysis-technique-specific methods.**
+- **Keep IVideoSource / IVideoOutput generic** — no FFmpeg-specific types in the port.

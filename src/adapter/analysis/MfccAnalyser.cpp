@@ -48,7 +48,7 @@ std::vector<double> MfccAnalyser::compute(const std::vector<double>& block,
     auto [mag, half] = runFft(*fft_, block);
 
     // Mel filter bank (sparse) → DCT → MFCCs.
-    MelFilterBank bank(static_cast<double>(sample_rate), block.size());
+    MelFilterBank bank(sample_rate, block.size());
     const auto filter_output = bank.apply(mag);
 
     return fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));
@@ -68,7 +68,7 @@ Fingerprints MfccAnalyser::analyse(const std::vector<double>& block,
     auto [mag, half] = runFft(*fft_, block);
 
     // ── Primary: MFCC coefficients ─────────────────────────────────────
-    MelFilterBank bank(static_cast<double>(sample_rate), block.size());
+    MelFilterBank bank(sample_rate, block.size());
     const auto filter_output = bank.apply(mag);
 
     fp.mfcc = fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));

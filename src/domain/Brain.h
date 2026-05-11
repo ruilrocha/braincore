@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,7 @@
 #include "BlockConfig.h"
 #include "Sound.h"
 #include "SearchParams.h"
+#include "VideoSegment.h"
 #include "port/IAnalyser.h"
 #include "port/ISearchStrategy.h"
 
@@ -46,8 +48,15 @@ public:
 
     // ── Ingestion ──────────────────────────────────────────────────────
 
-    /** Segment @p sound into blocks, fingerprint each, and store them. */
-    void addSound(const Sound& sound, const std::string& name = "");
+    /** Segment @p sound into blocks, fingerprint each, and store them.
+     *
+     *  @param sound  Audio data to ingest.
+     *  @param name   Label / path for source tracking.
+     *  @param video  Optional video metadata. When provided, each block
+     *                receives a VideoSegment with the computed time offset.
+     */
+    void addSound(const Sound& sound, const std::string& name = "",
+                  std::optional<VideoMetadata> video = std::nullopt);
 
     // ── Source management ──────────────────────────────────────────────
 

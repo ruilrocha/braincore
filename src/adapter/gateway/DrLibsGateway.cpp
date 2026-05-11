@@ -119,7 +119,7 @@ bool DrLibsGateway::saveSound(const std::string& path, const Sound& sound) {
         }
     }
 
-    drwav_write_pcm_frames(&wav, static_cast<drwav_uint64>(frames),
+    drwav_write_pcm_frames(&wav, frames,
                            interleaved.data());
     drwav_uninit(&wav);
     return true;

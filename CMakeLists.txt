@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD 23)
 option(BRAINIO_BUILD_IO       "Build audio file I/O adapter (dr_libs)" ON)
 option(BRAINIO_BUILD_PLAYBACK "Build miniaudio playback adapter"       ON)
 option(BRAINIO_BUILD_UI       "Build WebSocket UI layer"               ON)
+option(BRAINIO_BUILD_VIDEO    "Build video I/O adapter (FFmpeg)"       ON)
 option(BRAINIO_BUILD_CLI      "Build CLI executable"                   ON)
 
 # ── Find packages ──────────────────────────────────────────────────────
@@ -23,6 +24,10 @@ endif()
 
 if(BRAINIO_BUILD_UI)
     find_package(ixwebsocket REQUIRED)
+endif()
+
+if(BRAINIO_BUILD_VIDEO)
+    find_package(avcpp REQUIRED)
 endif()
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -83,6 +88,20 @@ if(BRAINIO_BUILD_UI)
 endif()
 
 # ═══════════════════════════════════════════════════════════════════════
+# brainio-video  (Video I/O — optional, uses avcpp + FFmpeg)
+# ═══════════════════════════════════════════════════════════════════════
+if(BRAINIO_BUILD_VIDEO)
+    add_library(brainio-video STATIC
+        src/adapter/video/FfmpegVideoSource.cpp
+        src/adapter/video/FfmpegVideoOutput.cpp)
+    target_include_directories(brainio-video PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(brainio-video PUBLIC
+        brainio-core
+        avcpp::avcpp)
+    target_compile_definitions(brainio-video PUBLIC BRAINIO_HAS_VIDEO)
+endif()
+
+# ═══════════════════════════════════════════════════════════════════════
 # brainio-capi  (C-compatible API for XCFramework / Swift consumption)
 # ═══════════════════════════════════════════════════════════════════════
 add_library(brainio-capi STATIC
@@ -126,10 +145,21 @@ if(BRAINIO_BUILD_CLI)
         target_link_libraries(brainio PRIVATE brainio-ui)
     endif()
 
+    if(BRAINIO_BUILD_VIDEO)
+        target_link_libraries(brainio PRIVATE brainio-video)
+        target_compile_definitions(brainio PRIVATE BRAINIO_HAS_VIDEO)
+    endif()
+
     # Platform-specific libs.
     if(UNIX AND NOT APPLE)
         find_package(Threads REQUIRED)
         target_link_libraries(brainio PRIVATE Threads::Threads dl m)
+    endif()
+
+    # Suppress "ignoring duplicate libraries" warning introduced by avcpp pulling
+    # libc++ through multiple transitive paths on Apple platforms.
+    if(APPLE)
+        target_link_options(brainio PRIVATE "-Wl,-no_warn_duplicate_libraries")
     endif()
 endif()
 
