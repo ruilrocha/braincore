@@ -24,12 +24,13 @@ struct VideoFrame {
     [[nodiscard]] bool empty() const { return pixels.empty(); }
 
     /// Create a black (zeroed) frame of the given dimensions.
-    static VideoFrame black(int w, int h) {
-        VideoFrame f;
-        f.width = w;
-        f.height = h;
-        f.pixels.assign(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 3, 0);
-        return f;
+    static VideoFrame black(const int width, const int height) {
+        VideoFrame frame;
+        frame.width = width;
+        frame.height = height;
+        frame.pixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3,
+                            0);
+        return frame;
     }
 };
 

@@ -89,7 +89,7 @@ static void signalHandler(int /*sig*/) {
 
 int main(int argc, char* argv[]) {
     // ── CLI argument parsing ───────────────────────────────────────────
-    enum class Mode { Batch, Stream, Infinite, Ui };
+    enum class Mode : std::uint8_t { Batch, Stream, Infinite, Ui };
     auto mode = Mode::Batch;
 
     struct BrainSource {
@@ -523,7 +523,13 @@ int main(int argc, char* argv[]) {
                                 std::cout
                                     << std::format("Brain rebuilt: {} blocks\n", brain.size());
                             } else {
-                                brain.setSearchStrategy(search);
+                                brain = audio::Brain::rebuild(brain.takeBlocks(), analyser, search,
+                                                              source_config);
+                                if (search->requiresSynapses()) {
+                                    std::cout
+                                        << std::format("Building synapses ({})...\n", num_synapses);
+                                    brain.buildSynapses(static_cast<std::size_t>(num_synapses));
+                                }
                                 std::cout << std::format("Search strategy set to '{}'\n",
                                                          current_search_name);
                             }

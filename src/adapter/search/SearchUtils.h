@@ -33,7 +33,7 @@ inline std::size_t stickify(const std::vector<double>& target_fp, const std::vec
         return closest_idx;
     }
 
-    const double next_dist = analyser.distance(target_fp, blocks[next].mfcc);
+    const double next_dist = analyser.distance(target_fp, blocks[next].print.mfcc);
 
     if (next_dist * (1.0 - stickyness) < closest_dist * stickyness) {
         return next;
@@ -118,14 +118,14 @@ inline double layerDistance(const std::vector<double>& primary_a,
  */
 inline double fullScore(const Block& target, const Block& candidate, const SearchParams& params) {
     // Raw comparison.
-    double raw_dist = detail::layerDistance(target.mfcc, target.spectral, candidate.mfcc,
-                                            candidate.spectral, params);
+    double raw_dist = detail::layerDistance(target.print.mfcc, target.print.spectral,
+                                            candidate.print.mfcc, candidate.print.spectral, params);
 
     // Normalised comparison (if n_ratio > 0).
     if (params.n_ratio > 0.0) {
-        double norm_dist =
-            detail::layerDistance(target.normalised_mfcc, target.normalised_spectral,
-                                  candidate.normalised_mfcc, candidate.normalised_spectral, params);
+        double norm_dist = detail::layerDistance(
+            target.normalised_print.mfcc, target.normalised_print.spectral,
+            candidate.normalised_print.mfcc, candidate.normalised_print.spectral, params);
         raw_dist = detail::blend(raw_dist, norm_dist, params.n_ratio);
     }
 

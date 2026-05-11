@@ -26,7 +26,7 @@ std::size_t SynapticSearch::search(const std::vector<double>& target_fp, std::ve
 
     for (std::size_t s = 0; s < limit; ++s) {
         const std::size_t idx = current.synapses[s];
-        double score = analyser.distance(target_fp, blocks[idx].mfcc);
+        double score = analyser.distance(target_fp, blocks[idx].print.mfcc);
         score += blocks[idx].usage * params.usage_weight;
         if (score < best_score) {
             best_score = score;

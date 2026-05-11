@@ -14,7 +14,7 @@ std::size_t ClosestSearch::search(const std::vector<double>& target_fp, std::vec
     std::size_t best_idx = 0;
 
     for (std::size_t i = 0; i < blocks.size(); ++i) {
-        double score = analyser.distance(target_fp, blocks[i].mfcc);
+        double score = analyser.distance(target_fp, blocks[i].print.mfcc);
         score += blocks[i].usage * params.usage_weight;
         if (score < best_score) {
             best_score = score;

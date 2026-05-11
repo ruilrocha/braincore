@@ -45,6 +45,19 @@ public:
     Brain(std::shared_ptr<port::IAnalyser> analyser, std::shared_ptr<port::ISearchStrategy> search,
           BlockConfig config = {});
 
+    /**
+     * Cheap rebuild factory — reuses pre-fingerprinted blocks without re-analysis.
+     *
+     * Use this when only the search strategy (or synapse graph) needs to change.
+     * It avoids the O(N × FFT) cost of a full brain reconstruction.
+     *
+     * @pre  @p blocks must not be in use by any audio thread.
+     *       Always call stopPlayback() (which joins the audio thread) before
+     *       calling takeBlocks(), then pass the result to this factory.
+     */
+    static Brain rebuild(std::vector<Block> blocks, std::shared_ptr<port::IAnalyser> analyser,
+                         std::shared_ptr<port::ISearchStrategy> strategy, BlockConfig config);
+
     // ── Ingestion ──────────────────────────────────────────────────────
 
     /** Segment @p sound into blocks, fingerprint each, and store them.
@@ -55,7 +68,7 @@ public:
      *                receives a VideoSegment with the computed time offset.
      */
     void addSound(const Sound& sound, const std::string& name = "",
-                  std::optional<VideoMetadata> video = std::nullopt);
+                  const std::optional<VideoMetadata>& video = std::nullopt);
 
     // ── Source management ──────────────────────────────────────────────
 
@@ -78,13 +91,6 @@ public:
      */
     [[nodiscard]] const Block& findBestMatch(const std::vector<double>& target_fp,
                                              const SearchParams& params);
-
-    /**
-     * Swap the search strategy at runtime.
-     * If the new strategy requires synapses and they haven't been built yet,
-     * buildSynapses() is called automatically (lazy, one-time cost).
-     */
-    void setSearchStrategy(std::shared_ptr<port::ISearchStrategy> strategy);
 
     // ── Synapse graph ──────────────────────────────────────────────────
 
@@ -125,6 +131,16 @@ public:
     [[nodiscard]] std::vector<Block>& blocks() { return blocks_; }
 
     [[nodiscard]] std::size_t currentBlockIndex() const { return current_block_index_; }
+
+    /**
+     * Move the block vector out of this Brain for use in Brain::rebuild().
+     *
+     * @pre  The audio thread must have fully stopped (stopPlayback() joined)
+     *       before calling this method — no concurrent reads of blocks_ are permitted.
+     *
+     * After this call the Brain is empty and must not be used for playback.
+     */
+    [[nodiscard]] std::vector<Block> takeBlocks();
 
 private:
     std::shared_ptr<port::IAnalyser> analyser_;
