@@ -67,10 +67,14 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
     auto [mag, half] = runFft(*fft_, block);
 
     // ── Primary: MFCC coefficients ─────────────────────────────────────
-    MelFilterBank bank(sample_rate, block.size());
+    const MelFilterBank bank(sample_rate, block.size());
     const auto filter_output = bank.apply(mag);
 
     fp.mfcc = fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));
+
+    // ── Mel filter-bank log energies (stored, not discarded) ──────────
+    // filter_output is already computed above — storing it is free.
+    fp.mel = filter_output;
 
     // ── Secondary: FFT magnitude bins ──────────────────────────────────
     const auto target_bins =
@@ -112,11 +116,12 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
 
 // ── Distance ───────────────────────────────────────────────────────────
 
-double MfccAnalyser::distance(const std::vector<double>& a, const std::vector<double>& b) const {
+double MfccAnalyser::distance(const std::vector<double>& fp_a,
+                              const std::vector<double>& fp_b) const {
     double sum = 0.0;
-    const std::size_t len = std::min(a.size(), b.size());
+    const std::size_t len = std::min(fp_a.size(), fp_b.size());
     for (std::size_t i = 0; i < len; ++i) {
-        const double diff = a[i] - b[i];
+        const double diff = fp_a[i] - fp_b[i];
         sum += diff * diff;
     }
     return std::sqrt(sum);

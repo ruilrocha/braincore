@@ -11,13 +11,13 @@ namespace audio::usecase::effects {
 // ── Grain envelope ─────────────────────────────────────────────────────
 
 void applyGrainEnvelope(std::vector<double>& grain) {
-    const auto n = grain.size();
-    if (n < 4) {
+    const auto grain_len = grain.size();
+    if (grain_len < 4) {
         return;
     }
-    for (std::size_t i = 0; i < n; ++i) {
-        const double t = static_cast<double>(i) / static_cast<double>(n - 1);
-        grain[i] *= 0.5 * (1.0 - std::cos(2.0 * std::numbers::pi * t));
+    for (std::size_t i = 0; i < grain_len; ++i) {
+        const double phase = static_cast<double>(i) / static_cast<double>(grain_len - 1);
+        grain[i] *= 0.5 * (1.0 - std::cos(2.0 * std::numbers::pi * phase));
     }
 }
 
@@ -125,8 +125,8 @@ std::vector<double> granularScatter(const std::vector<double>& src, const std::s
         if (amp_variation > 0.0) {
             const double amp =
                 std::max(0.0, 1.0 + (amp_variation * (rng::randomDouble() - 0.5) * 2.0));
-            for (auto& s : grain) {
-                s *= amp;
+            for (auto& samp : grain) {
+                samp *= amp;
             }
         }
 
@@ -163,13 +163,13 @@ void applyStutter(std::vector<double>& samples, const double chance, const int c
         return;
     }
 
-    const auto n = samples.size();
-    const auto seg = n / static_cast<std::size_t>(std::max(count, 2));
+    const auto num_samples = samples.size();
+    const auto seg = num_samples / static_cast<std::size_t>(std::max(count, 2));
     if (seg < 4) {
         return;
     }
 
-    const auto start = rng::randomIndex(n - seg);
+    const auto start = rng::randomIndex(num_samples - seg);
     std::vector stutter_seg(samples.begin() + static_cast<std::ptrdiff_t>(start),
                             samples.begin() + static_cast<std::ptrdiff_t>(start + seg));
 
@@ -181,8 +181,8 @@ void applyStutter(std::vector<double>& samples, const double chance, const int c
         stutter_seg[seg - 1 - i] *= env;
     }
 
-    for (std::size_t pos = 0; pos < n; pos += seg) {
-        const std::size_t len = std::min(seg, n - pos);
+    for (std::size_t pos = 0; pos < num_samples; pos += seg) {
+        const std::size_t len = std::min(seg, num_samples - pos);
         std::copy_n(stutter_seg.begin(), static_cast<std::ptrdiff_t>(len),
                     samples.begin() + static_cast<std::ptrdiff_t>(pos));
     }
@@ -194,27 +194,28 @@ void applyEnvelope(std::vector<double>& samples, const int shape, const double a
     if (shape <= 0 || amount <= 0.0) {
         return;
     }
-    const auto n = samples.size();
-    if (n == 0) {
+    const auto num_samples = samples.size();
+    if (num_samples == 0) {
         return;
     }
 
-    for (std::size_t i = 0; i < n; ++i) {
-        const double t = static_cast<double>(i) / static_cast<double>(n - 1);
+    for (std::size_t i = 0; i < num_samples; ++i) {
+        const double phase = static_cast<double>(i) / static_cast<double>(num_samples - 1);
         double env = 1.0;
 
         switch (shape) {
             case 1:
-                env = std::exp(-4.0 * t);
+                env = std::exp(-4.0 * phase);
                 break;
             case 2:
-                env = std::exp(-4.0 * (1.0 - t));
+                env = std::exp(-4.0 * (1.0 - phase));
                 break;
             case 3:
-                env = 0.5 + (0.5 * std::cos(16.0 * std::numbers::pi * t));
+                env = 0.5 + (0.5 * std::cos(16.0 * std::numbers::pi * phase));
                 break;
             case 4:
-                env = std::exp(-8.0 * t) * std::sin(std::numbers::pi * std::min(t * 10.0, 1.0));
+                env = std::exp(-8.0 * phase) *
+                      std::sin(std::numbers::pi * std::min(phase * 10.0, 1.0));
                 break;
             default:
                 break;

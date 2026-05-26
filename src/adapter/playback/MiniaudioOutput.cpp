@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <miniaudio.h>
 #if defined(__x86_64__) || defined(_M_X64)
 #include <xmmintrin.h>  // _mm_setcsr / _mm_getcsr for FTZ|DAZ denormal flush
@@ -15,7 +16,8 @@ namespace audio::adapter::playback {
 // ── Private implementation (hides miniaudio types from the header) ──────
 
 struct MiniaudioOutput::Impl {
-    ma_device device{};  // NOLINT(bugprone-invalid-enum-default-initialization)
+    ma_device device{};    // NOLINT(bugprone-invalid-enum-default-initialization)
+    ma_pcm_rb ring_buf{};  // SPSC PCM ring buffer (replaces ReaderWriterQueue)
 };
 
 // ── Miniaudio callback (static trampoline) ─────────────────────────────
@@ -44,17 +46,20 @@ bool MiniaudioOutput::open(const int sample_rate, const int channels, const int 
     channels_ = channels;
     sample_rate_ = sample_rate;
 
+    impl_ = new Impl{};
+
     // Ring buffer: sized by kRingBufferSeconds so the audio thread has ample
     // headroom against startup CPU transients (video decoder warm-up, cold cache)
-    // without the producer blocking.  Adjust kRingBufferSeconds in the header
-    // to trade off latency vs. underrun resilience.
-    const auto ch = static_cast<std::size_t>(channels);
-    const auto sr = static_cast<std::size_t>(sample_rate);
-    const auto capacity =
-        static_cast<std::size_t>(static_cast<double>(sr * ch) * kRingBufferSeconds);
-    ring_ = std::make_unique<moodycamel::ReaderWriterQueue<float>>(capacity);
+    // without the producer blocking.
+    const auto cap_frames =
+        static_cast<ma_uint32>(static_cast<double>(sample_rate) * kRingBufferSeconds);
 
-    impl_ = new Impl{};
+    if (ma_pcm_rb_init(ma_format_f32, static_cast<ma_uint32>(channels), cap_frames, nullptr,
+                       nullptr, &impl_->ring_buf) != MA_SUCCESS) {
+        delete impl_;
+        impl_ = nullptr;
+        return false;
+    }
 
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
     config.playback.format = ma_format_f32;
@@ -68,6 +73,7 @@ bool MiniaudioOutput::open(const int sample_rate, const int channels, const int 
     config.pUserData = this;
 
     if (ma_device_init(nullptr, &config, &impl_->device) != MA_SUCCESS) {
+        ma_pcm_rb_uninit(&impl_->ring_buf);
         delete impl_;
         impl_ = nullptr;
         return false;
@@ -75,6 +81,7 @@ bool MiniaudioOutput::open(const int sample_rate, const int channels, const int 
 
     if (ma_device_start(&impl_->device) != MA_SUCCESS) {
         ma_device_uninit(&impl_->device);
+        ma_pcm_rb_uninit(&impl_->ring_buf);
         delete impl_;
         impl_ = nullptr;
         return false;
@@ -113,7 +120,10 @@ void MiniaudioOutput::close() {
     ring_not_full_.notify_all();
 
     if (impl_ != nullptr) {
+        // Stop the device first — this waits for any in-flight callback to
+        // complete, making it safe to uninit the ring buffer immediately after.
         ma_device_uninit(&impl_->device);
+        ma_pcm_rb_uninit(&impl_->ring_buf);
         delete impl_;
         impl_ = nullptr;
     }
@@ -126,43 +136,49 @@ bool MiniaudioOutput::isOpen() const {
 // ── Write (producer side) ──────────────────────────────────────────────
 //
 // Rule: never drop samples.  Dropping even one float creates an audible
-// artifact because the consumer (audio callback) sees a hole in the
-// stream.
+// artifact because the consumer (audio callback) sees a hole in the stream.
 //
-// The old code used wait_for(5 ms) then silently discarded the sample if
-// the ring was still full.  With a hardware period of ~85 ms (4096 frames
-// @ 48 kHz on macOS) the notify_one() from fillBuffer never arrives within
-// those 5 ms, so every sample written while the ring is full gets dropped.
-//
-// Fix: retry unconditionally.  The wait_for timeout (200 ms) is a
-// hard-fail safety-valve only; in practice notify_one() fires within one
-// hardware period (≤ 85 ms on macOS / ≤ 23 ms on iOS).
+// The ring buffer (ma_pcm_rb) is frame-based.  If the ring is full,
+// ma_pcm_rb_acquire_write returns 0 frames and we wait on the condition
+// variable (notified by fillBuffer) before retrying.  This is the same
+// back-pressure model as the previous ReaderWriterQueue implementation.
 
 void MiniaudioOutput::write(const std::vector<double>& samples) {
-    for (const double samp : samples) {
+    std::size_t sample_offset = 0;
+    const std::size_t total = samples.size();
+    const auto ch = static_cast<std::size_t>(channels_);
+
+    while (sample_offset < total) {
         if (!open_.load(std::memory_order_relaxed)) {
             return;
         }
 
-        const auto fs = static_cast<float>(samp);
+        const std::size_t samples_left = total - sample_offset;
+        const std::size_t frames_left = samples_left / ch;
+        if (frames_left == 0) {
+            break;  // fewer than one full frame remaining — skip partial frame
+        }
 
-        // Fast path: enqueue without blocking (ring has space).
-        if (ring_->try_enqueue(fs)) {
+        auto frames_to_write = static_cast<ma_uint32>(frames_left);
+        void* write_ptr = nullptr;
+
+        if (ma_pcm_rb_acquire_write(&impl_->ring_buf, &frames_to_write, &write_ptr) != MA_SUCCESS ||
+            frames_to_write == 0 || write_ptr == nullptr) {
+            // Ring is full — wait for the audio callback to drain frames, then retry.
+            std::unique_lock lock(wait_mutex_);
+            ring_not_full_.wait_for(lock, std::chrono::milliseconds(200));
             continue;
         }
 
-        // Slow path: ring is full — wait for the audio callback to drain
-        // some samples, then retry.  Never drop.
-        while (!ring_->try_enqueue(fs)) {
-            if (!open_.load(std::memory_order_relaxed)) {
-                return;
-            }
-            std::unique_lock lock(wait_mutex_);
-            // Timeout >> hardware period so we always wake before the next
-            // callback fires.  The CV notify_one() in fillBuffer wakes us
-            // early in the normal case.
-            ring_not_full_.wait_for(lock, std::chrono::milliseconds(200));
+        // Convert double → float and copy into the ring buffer.
+        const std::size_t samples_to_copy = frames_to_write * ch;
+        auto* dst = static_cast<float*>(write_ptr);
+        for (std::size_t i = 0; i < samples_to_copy; ++i) {
+            dst[i] = static_cast<float>(samples[sample_offset + i]);
         }
+
+        ma_pcm_rb_commit_write(&impl_->ring_buf, frames_to_write);
+        sample_offset += samples_to_copy;
     }
 }
 
@@ -194,21 +210,37 @@ void MiniaudioOutput::fillBuffer(float* output, const std::size_t frame_count) {
     }
 #endif
 
-    const auto total = frame_count * static_cast<std::size_t>(channels_);
+    const auto ch = static_cast<std::size_t>(channels_);
+    const auto total_samples = frame_count * ch;
 
     // Zero the output buffer unconditionally so any underrun gap is clean
     // silence rather than whatever was in the driver's memory.
-    std::fill_n(output, total, 0.0F);
+    std::fill_n(output, total_samples, 0.0F);
 
-    for (std::size_t i = 0; i < total; ++i) {
-        float sample = 0.0F;
-        if (ring_->try_dequeue(sample)) {
-            output[i] = sample;
+    // Drain available frames from the ring buffer.  ma_pcm_rb_acquire_read may
+    // return fewer than requested if the ring wraps or is partially full —
+    // loop to read contiguous chunks until frame_count is satisfied or the
+    // ring is empty (underrun).
+    std::size_t frame_offset = 0;
+    while (frame_offset < frame_count) {
+        auto frames_to_read = static_cast<ma_uint32>(frame_count - frame_offset);
+        void* read_ptr = nullptr;
+
+        if (ma_pcm_rb_acquire_read(&impl_->ring_buf, &frames_to_read, &read_ptr) != MA_SUCCESS ||
+            frames_to_read == 0 || read_ptr == nullptr) {
+            break;  // underrun — remaining output stays as silence
         }
-        // On underrun: 0.0F already written above — no garbage output.
+
+        std::memcpy(output + (frame_offset * ch), read_ptr, frames_to_read * ch * sizeof(float));
+
+        ma_pcm_rb_commit_read(&impl_->ring_buf, frames_to_read);
+        frame_offset += frames_to_read;
     }
 
-    const auto consumed = samples_consumed_.fetch_add(total, std::memory_order_relaxed) + total;
+    // Always advance samples_consumed_ by the full hardware period — even on
+    // underrun the audio output clock advances in real time (silence is played).
+    const auto consumed =
+        samples_consumed_.fetch_add(total_samples, std::memory_order_relaxed) + total_samples;
 
     // Snapshot wall clock and sample count together so getAudioTimeSec() can
     // interpolate smoothly between hardware callback ticks.

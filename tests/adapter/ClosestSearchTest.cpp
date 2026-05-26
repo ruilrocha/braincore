@@ -1,5 +1,6 @@
 #include "adapter/search/ClosestSearch.h"
 #include "domain/Block.h"
+#include "domain/Brain.h"
 #include "domain/SearchParams.h"
 #include "domain/port/IAnalyser.h"
 #include "gtest/gtest.h"
@@ -24,8 +25,6 @@ public:
         audio::AudioPrint p;
         p.mfcc = compute(block, sr);
         p.spectral = p.mfcc;
-        p.normalised_mfcc = p.mfcc;
-        p.normalised_spectral = p.mfcc;
         return p;
     }
 
@@ -51,18 +50,24 @@ audio::Block makeBlock(const std::vector<double>& mfcc) {
     return b;
 }
 
+// Helper: build a Brain from pre-fingerprinted blocks.
+std::shared_ptr<audio::Brain> makeBrain(const std::vector<audio::Block>& blocks) {
+    auto analyser = std::make_shared<EuclideanAnalyser>();
+    return audio::Brain::rebuild(blocks, std::move(analyser), audio::BlockConfig{});
+}
+
 }  // namespace
 
 TEST(ClosestSearch, PicksNearestBlock) {
     // Block 0: fingerprint {0.0}, Block 1: {1.0}, Block 2: {2.0}
     // Target: {0.1} → closest is block 0.
-    std::vector blocks = {
+    const std::vector blocks = {
         makeBlock({0.0}),
         makeBlock({1.0}),
         makeBlock({2.0}),
     };
 
-    EuclideanAnalyser analyser;
+    auto brain = makeBrain(blocks);
     audio::adapter::search::ClosestSearch search;
     audio::SearchParams params;
     params.stickyness = 0.0;
@@ -70,18 +75,18 @@ TEST(ClosestSearch, PicksNearestBlock) {
 
     std::vector<double> block_usages(blocks.size(), 0.0);
     const std::vector target = {0.1};
-    const std::size_t idx = search.search(target, blocks, analyser, params, 0, block_usages);
+    const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
     EXPECT_EQ(idx, 0U);
 }
 
 TEST(ClosestSearch, PicksMiddleBlockWhenClosest) {
-    std::vector blocks = {
+    const std::vector blocks = {
         makeBlock({0.0}),
         makeBlock({1.0}),
         makeBlock({2.0}),
     };
 
-    const EuclideanAnalyser analyser;
+    auto brain = makeBrain(blocks);
     const audio::adapter::search::ClosestSearch search;
     audio::SearchParams params;
     params.stickyness = 0.0;
@@ -89,40 +94,40 @@ TEST(ClosestSearch, PicksMiddleBlockWhenClosest) {
 
     std::vector<double> block_usages(blocks.size(), 0.0);
     const std::vector target = {0.9};
-    const std::size_t idx = search.search(target, blocks, analyser, params, 0, block_usages);
+    const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
     EXPECT_EQ(idx, 1U);
 }
 
 TEST(ClosestSearch, UsagePenaltyShiftsSelection) {
     // Block 0 is closest, but has high usage. With usage_weight > 0 the
     // penalised score of block 0 should exceed block 1's score, so block 1 wins.
-    std::vector blocks = {
+    const std::vector blocks = {
         makeBlock({0.0}),  // closest but will be penalised
         makeBlock({1.0}),
     };
     std::vector<double> block_usages(blocks.size(), 0.0);
     block_usages[0] = 1000.0;  // kUsageFactor worth of usage
 
-    EuclideanAnalyser analyser;
+    auto brain = makeBrain(blocks);
     audio::adapter::search::ClosestSearch search;
     audio::SearchParams params;
     params.stickyness = 0.0;
     params.usage_weight = 1.0;
 
     const std::vector target = {0.0};
-    const std::size_t idx = search.search(target, blocks, analyser, params, 0, block_usages);
+    const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
     EXPECT_EQ(idx, 1U);
 }
 
 TEST(ClosestSearch, SingleBlockAlwaysSelected) {
-    std::vector blocks = {makeBlock({42.0})};
+    const std::vector blocks = {makeBlock({42.0})};
 
-    const EuclideanAnalyser analyser;
+    auto brain = makeBrain(blocks);
     const audio::adapter::search::ClosestSearch search;
     constexpr audio::SearchParams params;
 
     std::vector<double> block_usages(blocks.size(), 0.0);
     const std::vector target = {0.0};
-    const std::size_t idx = search.search(target, blocks, analyser, params, 0, block_usages);
+    const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
     EXPECT_EQ(idx, 0U);
 }

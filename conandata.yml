@@ -9,7 +9,6 @@ requirements:
 
   # Audio playback
   - "miniaudio/0.11.18"
-  - "readerwriterqueue/1.0.6"
 
   # WebSocket UI
   - "ixwebsocket/11.4.5"

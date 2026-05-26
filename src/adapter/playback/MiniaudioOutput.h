@@ -6,7 +6,6 @@
 #include <condition_variable>
 #include <cstddef>
 #include <mutex>
-#include <readerwriterqueue/readerwriterqueue.h>
 #include <vector>
 
 namespace audio::adapter::playback {
@@ -14,9 +13,10 @@ namespace audio::adapter::playback {
 /**
  * Real-time audio output using the miniaudio library.
  *
- * Uses moodycamel::ReaderWriterQueue (lock-free SPSC) between the
- * caller (which pushes blocks via write()) and the miniaudio audio
- * callback (which drains samples).
+ * Uses miniaudio's built-in `ma_pcm_rb` (lock-free SPSC PCM ring buffer)
+ * between the caller (which pushes blocks via write()) and the miniaudio
+ * audio callback (which drains frames).  The ring buffer is owned by the
+ * private Impl struct so that miniaudio types do not leak into this header.
  */
 class MiniaudioOutput final : public port::IAudioOutput {
 public:
@@ -48,7 +48,6 @@ private:
     struct Impl;
     Impl* impl_ = nullptr;
 
-    std::unique_ptr<moodycamel::ReaderWriterQueue<float>> ring_;
     std::mutex wait_mutex_;
     std::condition_variable ring_not_full_;
 

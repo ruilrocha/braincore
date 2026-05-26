@@ -1,59 +1,61 @@
 #include "MarkovChainSearch.h"
 
 #include "../../domain/Random.h"
-#include "../../domain/port/IAnalyser.h"
 #include "SearchUtils.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <stdexcept>
 
 namespace audio::adapter::search {
 
-MarkovChainSearch::MarkovChainSearch(const double temperature, const std::size_t num_synapses,
-                                     std::shared_ptr<const SynapseGraph> graph)
-    : SynapseAwareSearch(std::move(graph)),
-      temperature_(temperature),
-      num_synapses_(num_synapses) {}
+MarkovChainSearch::MarkovChainSearch(const double temperature, const std::size_t num_synapses)
+    : temperature_(temperature), num_synapses_(num_synapses) {}
 
 std::size_t MarkovChainSearch::search(const std::vector<double>& target_fp,
-                                      const std::vector<Block>& blocks,
-                                      const port::IAnalyser& analyser, const SearchParams& params,
+                                      const audio::Brain& brain, const SearchParams& params,
                                       const std::size_t current_block_index,
                                       std::vector<double>& block_usages) const {
+    const auto& blocks = brain.blocks();
+    const auto& analyser = brain.analyser();
+
     if (blocks.empty()) {
         return 0;
     }
 
-    const auto& neighbours = graph_->neighbours;
-    if (current_block_index >= neighbours.size() || neighbours[current_block_index].empty()) {
-        // Graph exists but current index has no neighbours — should not happen in normal
-        // operation, but handle defensively by falling back to a random block.
+    const auto* idx = brain.index();
+    if (idx == nullptr) {
+        throw std::runtime_error(
+            "MarkovChainSearch: brain.index() is null — call brain->buildIndex() before playback.");
+    }
+
+    const auto neighbours = idx->neighbors(current_block_index);
+    if (neighbours.empty()) {
         return rng::randomIndex(blocks.size());
     }
 
-    const auto& candidate_list = neighbours[current_block_index];
-    const std::size_t limit = std::min(num_synapses_, candidate_list.size());
+    const std::size_t limit = std::min(num_synapses_, neighbours.size());
 
     // 1. Score each synapse candidate: target affinity + proximity bonus + usage penalty.
     std::vector<double> scores(limit);
     double min_score = std::numeric_limits<double>::max();
 
     for (std::size_t candidate_idx = 0; candidate_idx < limit; ++candidate_idx) {
-        const std::size_t idx = candidate_list[candidate_idx];
-        const double usage = (idx < block_usages.size()) ? block_usages[idx] : 0.0;
-        const double target_dist = analyser.distance(target_fp, blocks[idx].print.mfcc);
+        const std::size_t block_idx = neighbours[candidate_idx];
+        const double usage = (block_idx < block_usages.size()) ? block_usages[block_idx] : 0.0;
+        const double target_dist = analyser.distance(target_fp, blocks[block_idx].print.mfcc);
         const double proximity_bonus = static_cast<double>(candidate_idx) * 0.01;
         scores[candidate_idx] = target_dist + proximity_bonus + (usage * params.usage_weight);
         min_score = std::min(scores[candidate_idx], min_score);
     }
 
     // 2. Convert to softmax probabilities.
-    const double T = std::max(temperature_, 1e-10);
+    const double temp = std::max(temperature_, 1e-10);
     std::vector<double> probs(limit);
     for (std::size_t prob_idx = 0; prob_idx < limit; ++prob_idx) {
-        probs[prob_idx] = std::exp(-(scores[prob_idx] - min_score) / T);
+        probs[prob_idx] = std::exp(-(scores[prob_idx] - min_score) / temp);
     }
 
     const double total = std::accumulate(probs.begin(), probs.end(), 0.0);
@@ -77,7 +79,7 @@ std::size_t MarkovChainSearch::search(const std::vector<double>& target_fp,
         }
     }
 
-    const std::size_t selected = candidate_list[selected_synapse];
+    const std::size_t selected = neighbours[selected_synapse];
     SearchUtils::applyUsage(block_usages, selected, params.usage_falloff);
 
     return SearchUtils::stickify(target_fp, blocks, analyser, selected, scores[selected_synapse],

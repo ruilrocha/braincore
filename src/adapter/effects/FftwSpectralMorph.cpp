@@ -11,8 +11,8 @@ SpectralMorph::SpectralMorph(std::shared_ptr<port::IFft> fft) : fft_(std::move(f
 std::vector<double> SpectralMorph::apply(const std::vector<double>& prev,
                                          const std::vector<double>& current,
                                          const double amount) const {
-    const auto n = std::min(prev.size(), current.size());
-    if (n == 0) {
+    const auto block_len = std::min(prev.size(), current.size());
+    if (block_len == 0) {
         return current;
     }
     if (amount <= 0.0) {
@@ -22,8 +22,8 @@ std::vector<double> SpectralMorph::apply(const std::vector<double>& prev,
     const double inv_amount = 1.0 - amount;
 
     // ── Forward FFT of both blocks ─────────────────────────────────────
-    const std::span prev_span(prev.data(), n);
-    const std::span curr_span(current.data(), n);
+    const std::span prev_span(prev.data(), block_len);
+    const std::span curr_span(current.data(), block_len);
 
     auto spec_prev = fft_->forward(prev_span);
     auto spec_curr = fft_->forward(curr_span);
@@ -54,18 +54,18 @@ std::vector<double> SpectralMorph::apply(const std::vector<double>& prev,
     }
 
     // ── Inverse FFT ────────────────────────────────────────────────────
-    auto result = fft_->inverse(morphed, n);
+    auto result = fft_->inverse(morphed, block_len);
 
     // ── RMS matching ───────────────────────────────────────────────────
     double rms_prev = 0.0;
     double rms_curr = 0.0;
     double rms_out = 0.0;
-    for (std::size_t i = 0; i < n; ++i) {
+    for (std::size_t i = 0; i < block_len; ++i) {
         rms_prev += prev[i] * prev[i];
         rms_curr += current[i] * current[i];
         rms_out += result[i] * result[i];
     }
-    const auto dn = static_cast<double>(n);
+    const auto dn = static_cast<double>(block_len);
     rms_prev = std::sqrt(rms_prev / dn);
     rms_curr = std::sqrt(rms_curr / dn);
     rms_out = std::sqrt(rms_out / dn);
@@ -73,8 +73,8 @@ std::vector<double> SpectralMorph::apply(const std::vector<double>& prev,
     const double target_rms = (rms_prev * amount) + (rms_curr * inv_amount);
     if (rms_out > 1e-10 && target_rms > 1e-10) {
         const double gain = target_rms / rms_out;
-        for (auto& s : result) {
-            s *= gain;
+        for (auto& sample : result) {
+            sample *= gain;
         }
     }
 

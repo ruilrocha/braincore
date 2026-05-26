@@ -13,7 +13,7 @@
 #include "../adapter/search/MarkovChainSearch.h"
 #include "../adapter/search/MomentumSearch.h"
 #include "../adapter/search/SynapticSearch.h"
-#include "../domain/SynapseGraph.h"
+#include "../adapter/search/VpTreeSearch.h"
 
 namespace audio::ui {
 
@@ -50,23 +50,24 @@ inline bool isAudioFile(const std::filesystem::path& path) {
 /**
  * Create a search strategy by name.
  *
- * The @p graph is always pre-built by the composition root and passed here.
- * Graph-aware strategies (synaptic, markov) take it at construction time —
- * construction throws `std::invalid_argument` if the graph is null.
- * Non-graph strategies (closest, momentum) ignore it.
+ * All strategies receive the Brain at search time via ISearchStrategy::search().
+ * Strategies that require the nearest-neighbour index (synaptic, markov,
+ * vptree) throw at search time if brain->buildIndex() has not been called —
+ * there is no constructor-time injection.
  *
- * @param name   Strategy name: "synaptic", "markov", "momentum", or anything
- *               else defaults to ClosestSearch.
- * @param graph  Pre-built SynapseGraph (must be non-null for synaptic/markov).
+ * @param name  Strategy name: "synaptic", "markov", "momentum", or anything
+ *              else defaults to ClosestSearch.
  */
-inline auto makeSearch(const std::string& name, std::shared_ptr<const SynapseGraph> graph)
-    -> std::shared_ptr<port::ISearchStrategy> {
+inline auto makeSearch(const std::string& name) -> std::shared_ptr<port::ISearchStrategy> {
     using namespace adapter::search;
     if (name == "synaptic") {
-        return std::make_shared<SynapticSearch>(100, std::move(graph));
+        return std::make_shared<SynapticSearch>(100);
     }
     if (name == "markov") {
-        return std::make_shared<MarkovChainSearch>(1.0, 100, std::move(graph));
+        return std::make_shared<MarkovChainSearch>(1.0, 100);
+    }
+    if (name == "vptree") {
+        return std::make_shared<VpTreeSearch>(32);
     }
     if (name == "momentum") {
         return std::make_shared<MomentumSearch>();

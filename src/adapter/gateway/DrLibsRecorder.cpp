@@ -30,7 +30,7 @@ bool DrLibsRecorder::open(const std::string& path, int sample_rate, int channels
     format.sampleRate = static_cast<drwav_uint32>(sample_rate);
     format.bitsPerSample = 32;
 
-    if (!drwav_init_file_write(&impl_->wav, path.c_str(), &format, nullptr)) {
+    if (drwav_init_file_write(&impl_->wav, path.c_str(), &format, nullptr) == 0) {
         std::cerr << "DrLibsRecorder: failed to open " << path << '\n';
         delete impl_;
         impl_ = nullptr;
@@ -42,8 +42,9 @@ bool DrLibsRecorder::open(const std::string& path, int sample_rate, int channels
 }
 
 void DrLibsRecorder::write(const std::vector<double>& samples) {
-    if (!impl_ || !impl_->open)
+    if (impl_ == nullptr || !impl_->open) {
         return;
+    }
 
     // Convert double to float for dr_wav.
     const auto frame_count = samples.size() / static_cast<std::size_t>(channels_);
@@ -56,7 +57,7 @@ void DrLibsRecorder::write(const std::vector<double>& samples) {
 }
 
 void DrLibsRecorder::close() {
-    if (impl_) {
+    if (impl_ != nullptr) {
         if (impl_->open) {
             drwav_uninit(&impl_->wav);
             impl_->open = false;

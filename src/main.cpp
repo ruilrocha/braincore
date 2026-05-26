@@ -31,7 +31,6 @@
 #include "domain/Command.h"
 #include "domain/SearchParams.h"
 #include "domain/Sound.h"
-#include "domain/SynapseGraph.h"
 
 // Use-case layer
 #include "usecase/SoundProcessor.h"
@@ -297,14 +296,15 @@ int main(int argc, char* argv[]) {
         return brain;
     };
 
-    // Always build the synapse graph; graph-aware strategies receive it at construction.
-    auto buildSearch = [&](const std::shared_ptr<const audio::Brain>& b)
+    // Build the nearest-neighbour index and create the search strategy.
+    // All strategies receive the Brain directly at search time — no index
+    // pointer injection needed.
+    auto buildSearch = [&](const std::shared_ptr<audio::Brain>& b)
         -> std::shared_ptr<audio::port::ISearchStrategy> {
         std::cout << std::format("Building synapses ({})...\n", num_synapses);
-        auto graph = std::make_shared<const audio::SynapseGraph>(
-            audio::buildSynapseGraph(*b, static_cast<std::size_t>(num_synapses)));
+        b->buildIndex(static_cast<std::size_t>(num_synapses));
         std::cout << "Synapses built successfully.\n";
-        return makeSearch(current_search_name, std::move(graph));
+        return makeSearch(current_search_name);
     };
 
     auto brain = loadBrain();
@@ -706,7 +706,7 @@ int main(int argc, char* argv[]) {
 
     audio::usecase::SoundProcessor processor(search, params, target_config, spectral_morph,
                                              video_out);
-    audio::Sound result = processor.process(*brain, *target);
+    audio::Sound result = processor.process(brain, *target);
     if (video_out) {
         video_out->close();
     }

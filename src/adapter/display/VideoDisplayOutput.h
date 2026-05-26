@@ -11,7 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <readerwriterqueue/readerwriterqueue.h>
+#include <queue>
 #include <thread>
 
 namespace audio::adapter::display {
@@ -90,8 +90,9 @@ private:
     std::shared_ptr<port::IVideoSource> source_;
     std::shared_ptr<port::IVideoDisplay> display_;
 
-    /// SPSC queue from Thread A → Thread B.
-    moodycamel::ReaderWriterQueue<BlockCmd> block_queue_;
+    /// SPSC queue from Thread A → Thread B (guarded by block_queue_mutex_).
+    std::queue<BlockCmd> block_queue_;
+    std::mutex block_queue_mutex_;
 
     /// Pre-decoded frames sorted by audio_start (Thread B writes, Thread C reads).
     std::deque<TimedFrame> timed_frames_;

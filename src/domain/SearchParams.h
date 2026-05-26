@@ -52,6 +52,11 @@ struct SearchParams {
     ///   1.0 = normalised (amplitude-invariant) only
     double n_ratio = 0.0;
 
+    /// Mel filter-bank fingerprint blend weight [0.0, 1.0].
+    /// Blends the Mel envelope distance into the overall score alongside MFCC
+    /// and spectral.  0.0 = no Mel contribution (default), 1.0 = Mel dominates.
+    double mel_weight = 0.0;
+
     /// Spectral fingerprint comparison range (0-based bin indices).
     int spectral_start = 0;
     int spectral_end = 100;

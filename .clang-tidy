@@ -7,6 +7,7 @@ Checks: >
   -bugprone-easily-swappable-parameters,
   modernize-*,
   -modernize-use-trailing-return-type,
+  -modernize-use-ranges,
   readability-*,
   -readability-magic-numbers,
   -readability-function-cognitive-complexity,

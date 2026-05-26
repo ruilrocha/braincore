@@ -84,13 +84,13 @@ static bool extractBool(const std::string& json, const std::string& key, bool& o
 }
 
 /// Serialize params + config to a full state JSON string.
-static std::string buildStateJson(const SearchParams& p,
-                                  const port::IParamController::ConfigState& c) {
+static std::string buildStateJson(const SearchParams& params,
+                                  const port::IParamController::ConfigState& cfg_state) {
     std::ostringstream ss;
     ss << R"({"type":"state","params":{)";
     ss << std::format(
         R"("alpha":{},"stickyness":{},"overlap":{},"usage_falloff":{},"usage_weight":{},)"
-        R"("blend_ratio":{},"n_ratio":{},"secondary_start":{},"secondary_end":{},)"
+        R"("blend_ratio":{},"n_ratio":{},"mel_weight":{},"secondary_start":{},"secondary_end":{},)"
         R"("momentum":{},"momentum_decay":{},)"
         R"("grain_size":{},"grain_scatter":{},"grain_density":{},)"
         R"("grain_size_variation":{},"grain_amp_variation":{},)"
@@ -98,16 +98,19 @@ static std::string buildStateJson(const SearchParams& p,
         R"("spectral_morph":{},)"
         R"("stutter_chance":{},"stutter_count":{},)"
         R"("envelope_shape":{},"envelope_amount":{})",
-        p.alpha, p.stickyness, p.overlap, p.usage_falloff, p.usage_weight, p.blend_ratio, p.n_ratio,
-        p.spectral_start, p.spectral_end, p.momentum, p.momentum_decay, p.grain_size,
-        p.grain_scatter, p.grain_density, p.grain_size_variation, p.grain_amp_variation,
-        p.grain_pitch_jitter, p.grain_hop_randomness, p.spectral_morph, p.stutter_chance,
-        p.stutter_count, p.envelope_shape, p.envelope_amount);
+        params.alpha, params.stickyness, params.overlap, params.usage_falloff, params.usage_weight,
+        params.blend_ratio, params.n_ratio, params.mel_weight, params.spectral_start,
+        params.spectral_end, params.momentum, params.momentum_decay, params.grain_size,
+        params.grain_scatter, params.grain_density, params.grain_size_variation,
+        params.grain_amp_variation, params.grain_pitch_jitter, params.grain_hop_randomness,
+        params.spectral_morph, params.stutter_chance, params.stutter_count, params.envelope_shape,
+        params.envelope_amount);
     ss << "}";
     ss << std::format(
         R"(,"config":{{"block_size":{},"overlap":{},"window_shape":{},"search_strategy":"{}","num_synapses":{},"target_path":"{}","playing":{},"recording":{}}})",
-        c.block_size, c.overlap, c.window_shape, c.search_strategy, c.num_synapses, c.target_path,
-        c.playing ? "true" : "false", c.recording ? "true" : "false");
+        cfg_state.block_size, cfg_state.overlap, cfg_state.window_shape, cfg_state.search_strategy,
+        cfg_state.num_synapses, cfg_state.target_path, cfg_state.playing ? "true" : "false",
+        cfg_state.recording ? "true" : "false");
     ss << "}";
     return ss.str();
 }
@@ -144,18 +147,18 @@ void WebSocketParamController::handleMessage(const std::string& msg) {
             command_queue_.emplace(std::move(cmd));
         } else if (command_name == "rebuild") {
             RebuildCommand cmd;
-            double v = 0;
-            if (extractNumber(msg, "block_size", v)) {
-                cmd.block_size = static_cast<int>(v);
+            double val = 0;
+            if (extractNumber(msg, "block_size", val)) {
+                cmd.block_size = static_cast<int>(val);
             }
-            if (extractNumber(msg, "overlap", v)) {
-                cmd.overlap = static_cast<int>(v);
+            if (extractNumber(msg, "overlap", val)) {
+                cmd.overlap = static_cast<int>(val);
             }
-            if (extractNumber(msg, "window_shape", v)) {
-                cmd.window_shape = static_cast<int>(v);
+            if (extractNumber(msg, "window_shape", val)) {
+                cmd.window_shape = static_cast<int>(val);
             }
-            if (extractNumber(msg, "num_synapses", v)) {
-                cmd.num_synapses = static_cast<int>(v);
+            if (extractNumber(msg, "num_synapses", val)) {
+                cmd.num_synapses = static_cast<int>(val);
             }
             extractString(msg, "search_strategy", cmd.search_strategy);
             command_queue_.emplace(std::move(cmd));
@@ -274,6 +277,8 @@ void WebSocketParamController::applyParam(const std::string& name, double value)
         params_.blend_ratio = value;
     } else if (name == "n_ratio") {
         params_.n_ratio = value;
+    } else if (name == "mel_weight") {
+        params_.mel_weight = value;
     } else if (name == "secondary_start") {
         params_.spectral_start = static_cast<int>(value);
     } else if (name == "secondary_end") {
@@ -317,6 +322,7 @@ void WebSocketParamController::printParamInfo() {
                  "  usage_weight        [0.0, 1.0]   Novelty: usage penalty\n"
                  "  blend_ratio         [0.0, 1.0]   Primary/secondary FP blend\n"
                  "  n_ratio             [0.0, 1.0]   Raw/normalised FP blend\n"
+                 "  mel_weight          [0.0, 1.0]   Mel envelope fingerprint blend\n"
                  "  momentum            [0.0, 1.0]   Trajectory inertia\n"
                  "  momentum_decay      [0.0, 1.0]   Velocity decay per step\n"
                  "  grain_size          [0.01, 1.0]  Grain size (frac of block)\n"

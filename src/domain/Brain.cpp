@@ -19,6 +19,30 @@ std::shared_ptr<Brain> Brain::rebuild(const std::vector<Block>& blocks,
     return brain;
 }
 
+// ── Index build ────────────────────────────────────────────────────────
+
+void Brain::buildIndex(const std::size_t num_synapses) {
+    if (blocks_.empty()) {
+        return;
+    }
+
+    const std::size_t num_blocks = blocks_.size();
+    const std::size_t num_neighbors = std::min(num_synapses, num_blocks > 0 ? num_blocks - 1 : 0);
+
+    auto dist_fn = [this](const std::vector<double>& fp_a, const std::vector<double>& fp_b) {
+        return analyser_->distance(fp_a, fp_b);
+    };
+
+    std::vector<std::vector<double>> fps;
+    fps.reserve(num_blocks);
+    for (const auto& block : blocks_) {
+        fps.push_back(block.print.mfcc);
+    }
+
+    index_.emplace();
+    index_->build(std::move(fps), dist_fn, num_neighbors);
+}
+
 // ── Ingestion ──────────────────────────────────────────────────────────
 
 void Brain::addSound(const Sound& sound, const std::string& name,

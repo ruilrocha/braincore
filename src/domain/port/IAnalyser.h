@@ -47,8 +47,8 @@ public:
      * Distance between two fingerprint vectors (lower = more similar).
      * Used for quick single-vector comparisons (e.g. stickyness check).
      */
-    [[nodiscard]] virtual double distance(const std::vector<double>& a,
-                                          const std::vector<double>& b) const = 0;
+    [[nodiscard]] virtual double distance(const std::vector<double>& fp_a,
+                                          const std::vector<double>& fp_b) const = 0;
 };
 
 }  // namespace audio::port

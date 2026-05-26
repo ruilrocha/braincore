@@ -127,7 +127,7 @@ inline double layerDistance(const std::vector<double>& primary_a,
 inline double fullScore(const Block& target, const Block& candidate,
                         const std::vector<double>& block_usages, const std::size_t candidate_idx,
                         const SearchParams& params) {
-    // Raw comparison.
+    // Raw comparison (MFCC + spectral blend).
     double raw_dist = detail::layerDistance(target.print.mfcc, target.print.spectral,
                                             candidate.print.mfcc, candidate.print.spectral, params);
 
@@ -137,6 +137,14 @@ inline double fullScore(const Block& target, const Block& candidate,
             target.normalised_print.mfcc, target.normalised_print.spectral,
             candidate.normalised_print.mfcc, candidate.normalised_print.spectral, params);
         raw_dist = detail::blend(raw_dist, norm_dist, params.n_ratio);
+    }
+
+    // Mel filter-bank blend (if mel_weight > 0).
+    if (params.mel_weight > 0.0) {
+        const auto mel_n = std::max(target.print.mel.size(), std::size_t{1});
+        const double mel_dist = detail::ssd(target.print.mel, candidate.print.mel, 0, mel_n) /
+                                static_cast<double>(mel_n);
+        raw_dist = detail::blend(raw_dist, mel_dist, params.mel_weight);
     }
 
     // Usage penalty ("novelty").

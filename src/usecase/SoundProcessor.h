@@ -2,6 +2,7 @@
 
 #include "../domain/BlockConfig.h"
 #include "../domain/Brain.h"
+#include "../domain/PlayHead.h"
 #include "../domain/SearchParams.h"
 #include "../domain/Sound.h"
 #include "../domain/port/IBlockEffect.h"
@@ -40,7 +41,8 @@ public:
                             std::shared_ptr<port::IBlockEffect> spectral_morph = nullptr,
                             std::shared_ptr<port::IVideoOutput> video_output = nullptr);
 
-    [[nodiscard]] Sound process(const Brain& brain, const Sound& target) const;
+    [[nodiscard]] Sound process(const std::shared_ptr<const Brain>& brain,
+                                const Sound& target) const;
 
 private:
     std::shared_ptr<port::ISearchStrategy> search_;
