@@ -61,7 +61,7 @@ public:
      * @param analyser  Fingerprint strategy (injected port).
      * @param config    Block segmentation configuration (size, overlap, window).
      */
-    Brain(std::shared_ptr<port::IAnalyser> analyser, BlockConfig config = {});
+    explicit Brain(std::shared_ptr<port::IAnalyser> analyser, BlockConfig config = {});
 
     // ── Ingestion (call before any audio thread uses this Brain) ────────
 

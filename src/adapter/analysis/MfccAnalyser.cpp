@@ -13,7 +13,7 @@ MfccAnalyser::MfccAnalyser(std::shared_ptr<port::IFft> fft, const int num_mfcc,
                            const int num_fft_bins)
     : fft_(std::move(fft)), num_mfcc_(num_mfcc), num_fft_bins_(num_fft_bins) {}
 
-// ── Internal helper: run forward FFT and extract magnitude ────────────────────
+// ── Internal helpers ───────────────────────────────────────────────────────────
 
 namespace {
 
@@ -24,7 +24,7 @@ struct FftResult {
 
 FftResult runFft(const port::IFft& fft, const std::vector<double>& block) {
     const auto half = (block.size() / 2) + 1;
-    auto complex_out = fft.forward(block);
+    const auto complex_out = fft.forward(block);
 
     std::vector<double> mag(half);
     for (std::size_t k = 0; k < half; ++k) {
@@ -33,6 +33,42 @@ FftResult runFft(const port::IFft& fft, const std::vector<double>& block) {
     }
 
     return {.magnitude = std::move(mag), .half_n = half};
+}
+
+/// Derive a 12-bin chroma vector from an FFT magnitude spectrum.
+/// Each bin is mapped to its MIDI pitch class (mod 12); energy accumulates as mag[k]².
+/// Result is L1-normalised so it is amplitude-independent.
+std::vector<double> chromaFromMag(const std::vector<double>& mag, std::size_t fft_size,
+                                  int sample_rate) {
+    std::vector<double> chroma(12, 0.0);
+    const double df = static_cast<double>(sample_rate) / static_cast<double>(fft_size);
+
+    for (std::size_t k = 1; k < mag.size(); ++k) {
+        const double freq = static_cast<double>(k) * df;
+        if (freq < 1.0) {
+            continue;
+        }
+        // MIDI note number, rounded to nearest semitone.
+        const double midi = (12.0 * std::log2(freq / 440.0)) + 69.0;
+        int pc = static_cast<int>(std::round(midi)) % 12;
+        if (pc < 0) {
+            pc += 12;
+        }
+        chroma[static_cast<std::size_t>(pc)] += mag[k] * mag[k];
+    }
+
+    // L1 normalise — makes chroma amplitude-independent.
+    double sum = 0.0;
+    for (const double v : chroma) {
+        sum += v;
+    }
+    if (sum > 1e-12) {
+        for (double& v : chroma) {
+            v /= sum;
+        }
+    }
+
+    return chroma;
 }
 
 }  // namespace
@@ -54,7 +90,7 @@ std::vector<double> MfccAnalyser::compute(const std::vector<double>& block,
     return fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));
 }
 
-// ── Full analysis (primary + secondary + dominant freq) ────────────────
+// ── Full analysis ──────────────────────────────────────────────────────
 
 AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sample_rate) const {
     if (block.empty()) {
@@ -73,7 +109,6 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
     fp.mfcc = fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));
 
     // ── Mel filter-bank log energies (stored, not discarded) ──────────
-    // filter_output is already computed above — storing it is free.
     fp.mel = filter_output;
 
     // ── Secondary: FFT magnitude bins ──────────────────────────────────
@@ -110,6 +145,9 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
         fp.dominant_freq = static_cast<double>(peak_bin) * static_cast<double>(sample_rate) /
                            static_cast<double>(block.size());
     }
+
+    // ── Chroma: pitch-class profile (free — reuses mag already computed) ──
+    fp.chroma = chromaFromMag(mag, block.size(), sample_rate);
 
     return fp;
 }

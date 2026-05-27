@@ -13,7 +13,7 @@ namespace audio::adapter::search {
  * For each target fingerprint, queries the nearest-neighbour index
  * (`brain.index()->kNearest(target_fp, k)`) to obtain a small candidate
  * set, then scores each candidate with `SearchUtils::fullScore()` (which
- * applies the same blend_ratio / n_ratio / mel_weight / usage penalty logic
+ * applies the same per-feature weights / n_ratio / usage penalty logic
  * as ClosestSearch) and returns the best one.
  *
  * Expected complexity: O(K·F + log N·F) vs. ClosestSearch's O(N·F),

@@ -147,7 +147,8 @@ void StreamProcessor::streamInfinite(const int sample_rate, const int channels) 
 
     // Build a silent dummy target for SynthesisStage (alpha=1.0 in infinite mode
     // means the target samples are never mixed in — the buffer only needs to exist).
-    const Sound dummy_target{{std::vector<double>(bs * 2, 0.0)}, sample_rate};
+    // Must have num_ch channels so SynthesisStage::process() can index every channel.
+    const Sound dummy_target{std::vector<Channel>(num_ch, Channel(bs * 2, 0.0)), sample_rate};
 
     // Build the pipeline (no AnalysisStage — fingerprint is injected each block).
     AudioPipeline pipeline;

@@ -13,10 +13,12 @@ constexpr double kUsageFactor = 1000.0;
  * Every field is designed to be bound to a UI slider/knob in a future GUI.
  *
  * Key concepts:
- *   - "novelty"     = usage_weight   — penalises re-used blocks
- *   - "boredom"     = usage_falloff  — how fast blocks become available again
- *   - "blend_ratio" — blend between primary and secondary fingerprint comparison
- *   - "n_ratio"     — blend between raw and normalised fingerprint comparison
+ *   - "novelty"        = usage_weight   — penalises re-used blocks
+ *   - "boredom"        = usage_falloff  — how fast blocks become available again
+ *   - Feature weights  — per-feature contribution sliders (mfcc, mel, spectral, chroma, pitch).
+ *                        Weights are normalised internally so their sum = 1.0, so each slider
+ *                        can be thought of as "percentage contribution" of that feature.
+ *   - "n_ratio"        — blend between raw and normalised fingerprint comparison
  */
 struct SearchParams {
     // ── Blend & reconstruction ─────────────────────────────────────────
@@ -40,22 +42,37 @@ struct SearchParams {
     /// "Novelty": weight applied to usage when scoring candidates [0.0, 1.0].
     double usage_weight = 0.0;
 
-    // ── Comparison blend ───────────────────────────────────────────────
+    // ── Comparison weights ─────────────────────────────────────────────
+    //
+    // Per-feature contribution weights [0.0, 1.0].  The scoring function
+    // normalises these so they sum to 1.0, so each slider represents a
+    // percentage contribution of that feature to the total distance score.
+    // Setting all to 0.0 defaults to pure MFCC.
+    //
+    // Features:
+    //   mfcc_weight     — timbral shape (compact, robust, amplitude-independent)
+    //   mel_weight      — spectral envelope (more detail than MFCC, less than spectral)
+    //   spectral_weight — FFT magnitude bins (high resolution, amplitude-sensitive)
+    //   chroma_weight   — pitch-class profile (harmonic content, octave-independent)
 
-    /// Primary-vs-secondary fingerprint blend ratio [0.0, 1.0]:
-    ///   0.0 = use only secondary fingerprint
-    ///   1.0 = use only primary fingerprint
-    double blend_ratio = 1.0;
+    /// MFCC timbral shape contribution [0.0, 1.0]. Default 1.0 (pure MFCC baseline).
+    double mfcc_weight = 1.0;
+
+    /// Mel filter-bank envelope contribution [0.0, 1.0].
+    double mel_weight = 0.0;
+
+    /// FFT magnitude bins contribution [0.0, 1.0].
+    double spectral_weight = 0.0;
+
+    /// Pitch-class (chroma) contribution [0.0, 1.0].
+    /// Matches blocks by harmonic/key content, independent of octave and amplitude.
+    double chroma_weight = 0.0;
 
     /// Raw-vs-normalised comparison ratio [0.0, 1.0]:
     ///   0.0 = raw (amplitude-dependent) only
     ///   1.0 = normalised (amplitude-invariant) only
+    /// Applies to all vector features (mfcc, mel, spectral, chroma).
     double n_ratio = 0.0;
-
-    /// Mel filter-bank fingerprint blend weight [0.0, 1.0].
-    /// Blends the Mel envelope distance into the overall score alongside MFCC
-    /// and spectral.  0.0 = no Mel contribution (default), 1.0 = Mel dominates.
-    double mel_weight = 0.0;
 
     /// Spectral fingerprint comparison range (0-based bin indices).
     int spectral_start = 0;

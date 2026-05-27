@@ -17,7 +17,7 @@ namespace audio::adapter::video {
  *     and encodes it into the output file.
  *   - nullopt (audio-only source): writes a black frame.
  *
- * Writes a video-only H.264/MP4 file. Audio muxing is a separate concern.
+ * Writes a video-only H.264/MP4 file. Audio is saved separately as WAV.
  */
 class FfmpegVideoOutput final : public port::IVideoOutput {
 public:

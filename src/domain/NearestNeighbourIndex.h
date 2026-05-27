@@ -75,8 +75,7 @@ public:
         for (std::size_t i = 0; i < items_.size(); ++i) {
             auto candidates = kNearest(items_[i], k + 1);
             // Remove self-match (the point itself appears at distance ≈ 0).
-            auto it = std::ranges::find(candidates, i);
-            if (it != candidates.end()) {
+            if (auto it = std::ranges::find(candidates, i); it != candidates.end()) {
                 candidates.erase(it);
             }
             if (candidates.size() > k) {

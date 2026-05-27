@@ -62,11 +62,11 @@ inline void applyUsage(std::vector<double>& block_usages, const std::size_t sele
     }
 }
 
-// ── Blended distance computation ───────────────────────────────────────
+// ── Multi-feature blended distance computation ─────────────────────────
 
 namespace detail {
 
-/// Sum of squared differences over a range [start, end).
+/// Sum of squared differences over a range [start, end), normalised by length.
 inline double ssd(const std::vector<double>& a, const std::vector<double>& b, std::size_t start,
                   std::size_t end) {
     double acc = 0.0;
@@ -75,7 +75,62 @@ inline double ssd(const std::vector<double>& a, const std::vector<double>& b, st
         const double d = a[i] - b[i];
         acc += d * d;
     }
-    return acc;
+    const std::size_t n = lim > start ? lim - start : 1;
+    return acc / static_cast<double>(n);
+}
+
+/// Normalised SSD over the full vector.
+inline double ssdFull(const std::vector<double>& a, const std::vector<double>& b) {
+    const std::size_t n = std::max(std::min(a.size(), b.size()), std::size_t{1});
+    return ssd(a, b, 0, n);
+}
+
+/**
+ * Compute the full multi-feature distance between two AudioPrint bundles.
+ *
+ * Weights from @p params are normalised so they sum to 1.0, making each
+ * weight a true percentage contribution.  If all weights are zero, pure
+ * MFCC distance is used (backwards-compatible fallback).
+ *
+ * Active features: mfcc, mel, spectral, chroma.
+ *
+ * @param raw_a      Raw (or normalised) AudioPrint of block A.
+ * @param raw_b      Raw (or normalised) AudioPrint of block B.
+ * @param params     Search parameters with per-feature weights.
+ * @return           Weighted distance score (lower = better match).
+ */
+inline double weightedDistance(const AudioPrint& raw_a, const AudioPrint& raw_b,
+                               const SearchParams& params) {
+    const double w_mfcc = std::max(0.0, params.mfcc_weight);
+    const double w_mel = std::max(0.0, params.mel_weight);
+    const double w_spectral = std::max(0.0, params.spectral_weight);
+    const double w_chroma = std::max(0.0, params.chroma_weight);
+
+    const double total_w = w_mfcc + w_mel + w_spectral + w_chroma;
+
+    // Pure MFCC fallback when all weights are zero.
+    if (total_w < 1e-12) {
+        return ssdFull(raw_a.mfcc, raw_b.mfcc);
+    }
+
+    double score = 0.0;
+
+    if (w_mfcc > 0.0) {
+        score += (w_mfcc / total_w) * ssdFull(raw_a.mfcc, raw_b.mfcc);
+    }
+    if (w_mel > 0.0) {
+        score += (w_mel / total_w) * ssdFull(raw_a.mel, raw_b.mel);
+    }
+    if (w_spectral > 0.0) {
+        const auto sec_start = static_cast<std::size_t>(std::max(0, params.spectral_start));
+        const auto sec_end = static_cast<std::size_t>(std::max(0, params.spectral_end));
+        score += (w_spectral / total_w) * ssd(raw_a.spectral, raw_b.spectral, sec_start, sec_end);
+    }
+    if (w_chroma > 0.0) {
+        score += (w_chroma / total_w) * ssdFull(raw_a.chroma, raw_b.chroma);
+    }
+
+    return score;
 }
 
 /// Linear blend: a*(1-t) + b*t.
@@ -83,42 +138,12 @@ inline double blend(double a, double b, double t) {
     return (a * (1.0 - t)) + (b * t);
 }
 
-/// Compute distance between one pair of primary+secondary fingerprints.
-inline double layerDistance(const std::vector<double>& primary_a,
-                            const std::vector<double>& secondary_a,
-                            const std::vector<double>& primary_b,
-                            const std::vector<double>& secondary_b, const SearchParams& params) {
-    const auto sec_start = static_cast<std::size_t>(std::max(0, params.spectral_start));
-    const auto sec_end = static_cast<std::size_t>(std::max(0, params.spectral_end));
-
-    if (params.blend_ratio >= 1.0) {
-        // Pure primary.
-        const std::size_t n =
-            std::max(std::min(primary_a.size(), primary_b.size()), static_cast<std::size_t>(1));
-        return ssd(primary_a, primary_b, 0, n) / static_cast<double>(n);
-    }
-    if (params.blend_ratio <= 0.0) {
-        constexpr double kSecondaryBias = 200.0;
-        // Pure secondary.
-        const std::size_t n = std::max(secondary_a.size(), static_cast<std::size_t>(1));
-        return ssd(secondary_a, secondary_b, sec_start, sec_end) / static_cast<double>(n) *
-               kSecondaryBias;
-    }
-    // Blend both.
-    const std::size_t sn = std::max(secondary_a.size(), static_cast<std::size_t>(1));
-    const std::size_t pn = std::max(primary_a.size(), static_cast<std::size_t>(1));
-    const double sec_d =
-        ssd(secondary_a, secondary_b, sec_start, sec_end) / static_cast<double>(sn);
-    const double pri_d = ssd(primary_a, primary_b, 0, pn) / static_cast<double>(pn);
-    return blend(sec_d, pri_d, params.blend_ratio);
-}
-
 }  // namespace detail
 
 /**
  * Compute the full blended distance between a target block and a candidate
  * brain block, considering:
- *   - primary vs. secondary fingerprint blend (blend_ratio)
+ *   - per-feature weights (mfcc, mel, spectral, chroma, pitch), normalised to sum = 1.0
  *   - raw vs. normalised fingerprint blend (n_ratio)
  *   - usage penalty (novelty), read from @p block_usages
  *
@@ -127,31 +152,21 @@ inline double layerDistance(const std::vector<double>& primary_a,
 inline double fullScore(const Block& target, const Block& candidate,
                         const std::vector<double>& block_usages, const std::size_t candidate_idx,
                         const SearchParams& params) {
-    // Raw comparison (MFCC + spectral blend).
-    double raw_dist = detail::layerDistance(target.print.mfcc, target.print.spectral,
-                                            candidate.print.mfcc, candidate.print.spectral, params);
+    // Raw comparison.
+    double dist = detail::weightedDistance(target.print, candidate.print, params);
 
-    // Normalised comparison (if n_ratio > 0).
+    // Blend in normalised comparison (if n_ratio > 0).
     if (params.n_ratio > 0.0) {
-        double norm_dist = detail::layerDistance(
-            target.normalised_print.mfcc, target.normalised_print.spectral,
-            candidate.normalised_print.mfcc, candidate.normalised_print.spectral, params);
-        raw_dist = detail::blend(raw_dist, norm_dist, params.n_ratio);
-    }
-
-    // Mel filter-bank blend (if mel_weight > 0).
-    if (params.mel_weight > 0.0) {
-        const auto mel_n = std::max(target.print.mel.size(), std::size_t{1});
-        const double mel_dist = detail::ssd(target.print.mel, candidate.print.mel, 0, mel_n) /
-                                static_cast<double>(mel_n);
-        raw_dist = detail::blend(raw_dist, mel_dist, params.mel_weight);
+        const double norm_dist =
+            detail::weightedDistance(target.normalised_print, candidate.normalised_print, params);
+        dist = detail::blend(dist, norm_dist, params.n_ratio);
     }
 
     // Usage penalty ("novelty").
     if (candidate_idx < block_usages.size()) {
-        raw_dist += block_usages[candidate_idx] * params.usage_weight;
+        dist += block_usages[candidate_idx] * params.usage_weight;
     }
-    return raw_dist;
+    return dist;
 }
 
 /**

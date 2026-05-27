@@ -21,8 +21,8 @@ SoundProcessor::SoundProcessor(std::shared_ptr<port::ISearchStrategy> search,
 
 // ── Main processing pipeline ───────────────────────────────────────────
 
-Sound SoundProcessor::process(const std::shared_ptr<const Brain>& brain,
-                              const Sound& target) const {
+Sound SoundProcessor::process(const std::shared_ptr<const Brain>& brain, const Sound& target,
+                              const ProgressFn& on_progress) const {
     const auto& target_channels = target.getChannels();
     if (target_channels.empty() || !brain) {
         return {std::vector<Channel>{}, target.getSampleRate()};
@@ -121,7 +121,6 @@ Sound SoundProcessor::process(const std::shared_ptr<const Brain>& brain,
                 effects::applyEnvelope(src, params_.envelope_shape, params_.envelope_amount);
             }
 
-            // Save processed samples for spectral morph on next block.
             prev_ch_samples[ch] = src;
 
             // ── Overlap-add with triangular cross-fade ─────────────────
@@ -146,6 +145,10 @@ Sound SoundProcessor::process(const std::shared_ptr<const Brain>& brain,
                     weight_acc[out_offset + i] += env;
                 }
             }
+        }
+
+        if (on_progress != nullptr) {
+            on_progress(block_idx + 1, num_blocks);
         }
     }
 

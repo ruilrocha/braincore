@@ -90,7 +90,8 @@ static std::string buildStateJson(const SearchParams& params,
     ss << R"({"type":"state","params":{)";
     ss << std::format(
         R"("alpha":{},"stickyness":{},"overlap":{},"usage_falloff":{},"usage_weight":{},)"
-        R"("blend_ratio":{},"n_ratio":{},"mel_weight":{},"secondary_start":{},"secondary_end":{},)"
+        R"("mfcc_weight":{},"mel_weight":{},"spectral_weight":{},"chroma_weight":{},)"
+        R"("n_ratio":{},"spectral_start":{},"spectral_end":{},)"
         R"("momentum":{},"momentum_decay":{},)"
         R"("grain_size":{},"grain_scatter":{},"grain_density":{},)"
         R"("grain_size_variation":{},"grain_amp_variation":{},)"
@@ -99,12 +100,12 @@ static std::string buildStateJson(const SearchParams& params,
         R"("stutter_chance":{},"stutter_count":{},)"
         R"("envelope_shape":{},"envelope_amount":{})",
         params.alpha, params.stickyness, params.overlap, params.usage_falloff, params.usage_weight,
-        params.blend_ratio, params.n_ratio, params.mel_weight, params.spectral_start,
-        params.spectral_end, params.momentum, params.momentum_decay, params.grain_size,
-        params.grain_scatter, params.grain_density, params.grain_size_variation,
-        params.grain_amp_variation, params.grain_pitch_jitter, params.grain_hop_randomness,
-        params.spectral_morph, params.stutter_chance, params.stutter_count, params.envelope_shape,
-        params.envelope_amount);
+        params.mfcc_weight, params.mel_weight, params.spectral_weight, params.chroma_weight,
+        params.n_ratio, params.spectral_start, params.spectral_end, params.momentum,
+        params.momentum_decay, params.grain_size, params.grain_scatter, params.grain_density,
+        params.grain_size_variation, params.grain_amp_variation, params.grain_pitch_jitter,
+        params.grain_hop_randomness, params.spectral_morph, params.stutter_chance,
+        params.stutter_count, params.envelope_shape, params.envelope_amount);
     ss << "}";
     ss << std::format(
         R"(,"config":{{"block_size":{},"overlap":{},"window_shape":{},"search_strategy":"{}","num_synapses":{},"target_path":"{}","playing":{},"recording":{}}})",
@@ -273,15 +274,23 @@ void WebSocketParamController::applyParam(const std::string& name, double value)
         params_.usage_falloff = value;
     } else if (name == "usage_weight") {
         params_.usage_weight = value;
-    } else if (name == "blend_ratio") {
-        params_.blend_ratio = value;
-    } else if (name == "n_ratio") {
-        params_.n_ratio = value;
+    } else if (name == "mfcc_weight") {
+        params_.mfcc_weight = value;
     } else if (name == "mel_weight") {
         params_.mel_weight = value;
-    } else if (name == "secondary_start") {
+    } else if (name == "spectral_weight") {
+        params_.spectral_weight = value;
+    } else if (name == "chroma_weight") {
+        params_.chroma_weight = value;
+    } else if (name == "blend_ratio") {
+        // Legacy shim: blend_ratio=1 → pure MFCC, blend_ratio=0 → pure spectral.
+        params_.mfcc_weight = value;
+        params_.spectral_weight = 1.0 - value;
+    } else if (name == "n_ratio") {
+        params_.n_ratio = value;
+    } else if (name == "secondary_start" || name == "spectral_start") {
         params_.spectral_start = static_cast<int>(value);
-    } else if (name == "secondary_end") {
+    } else if (name == "secondary_end" || name == "spectral_end") {
         params_.spectral_end = static_cast<int>(value);
     } else if (name == "momentum") {
         params_.momentum = value;
@@ -320,9 +329,11 @@ void WebSocketParamController::printParamInfo() {
                  "  stickyness          [0.0, 1.0]   Temporal coherence bias\n"
                  "  usage_falloff       [0.0, 1.0]   Boredom: usage decay rate\n"
                  "  usage_weight        [0.0, 1.0]   Novelty: usage penalty\n"
-                 "  blend_ratio         [0.0, 1.0]   Primary/secondary FP blend\n"
+                 "  mfcc_weight         [0.0, 1.0]   MFCC timbral shape contribution\n"
+                 "  mel_weight          [0.0, 1.0]   Mel envelope contribution\n"
+                 "  spectral_weight     [0.0, 1.0]   FFT magnitude detail contribution\n"
+                 "  chroma_weight       [0.0, 1.0]   Pitch-class / harmony contribution\n"
                  "  n_ratio             [0.0, 1.0]   Raw/normalised FP blend\n"
-                 "  mel_weight          [0.0, 1.0]   Mel envelope fingerprint blend\n"
                  "  momentum            [0.0, 1.0]   Trajectory inertia\n"
                  "  momentum_decay      [0.0, 1.0]   Velocity decay per step\n"
                  "  grain_size          [0.01, 1.0]  Grain size (frac of block)\n"

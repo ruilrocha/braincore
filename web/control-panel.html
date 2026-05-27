@@ -119,10 +119,13 @@
 </div>
 
 <div class="section">
-  <h2>AudioPrint Blend</h2>
-  <div class="param"><label>Blend ratio (MFCC/Spectral)</label><input type="range" min="0" max="1" step="0.01" data-param="blend_ratio"><span class="val">1.00</span></div>
-  <div class="param"><label>N ratio (raw/normalised)</label><input type="range" min="0" max="1" step="0.01" data-param="n_ratio"><span class="val">0.00</span></div>
-  <div class="param"><label>Mel weight (Mel envelope blend)</label><input type="range" min="0" max="1" step="0.01" data-param="mel_weight"><span class="val">0.00</span></div>
+  <h2>AudioPrint Weights</h2>
+  <p style="font-size:0.8em;color:#aaa;margin:0 0 8px">Weights are normalised internally (sum → 1.0). Each slider = % contribution of that feature to the match score.</p>
+  <div class="param"><label>MFCC (timbral shape)</label><input type="range" min="0" max="1" step="0.01" data-param="mfcc_weight"><span class="val">1.00</span></div>
+  <div class="param"><label>Mel (spectral envelope)</label><input type="range" min="0" max="1" step="0.01" data-param="mel_weight"><span class="val">0.00</span></div>
+  <div class="param"><label>Spectral (FFT magnitude)</label><input type="range" min="0" max="1" step="0.01" data-param="spectral_weight"><span class="val">0.00</span></div>
+  <div class="param"><label>Chroma (pitch class / harmony)</label><input type="range" min="0" max="1" step="0.01" data-param="chroma_weight"><span class="val">0.00</span></div>
+  <div class="param"><label>N ratio (raw → normalised)</label><input type="range" min="0" max="1" step="0.01" data-param="n_ratio"><span class="val">0.00</span></div>
 </div>
 
 <div class="section">
