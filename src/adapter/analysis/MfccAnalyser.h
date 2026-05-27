@@ -2,8 +2,11 @@
 
 #include "../../domain/port/IAnalyser.h"
 #include "../../domain/port/IFft.h"
+#include "../../aquila/filter/MelFilterBank.h"
 
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <vector>
 
 namespace audio::adapter::analysis {
@@ -13,18 +16,13 @@ namespace audio::adapter::analysis {
  *
  * Pipeline: IFft::forward() → MelFilterBank (sparse) → IFft::dct().
  *
- * The primary AudioPrint is MFCC coefficients (timbral envelope).
- * The secondary AudioPrint is FFT magnitude bins (spectral detail).
- * Chroma (pitch-class) and F0 are also computed — see AudioPrint.
- * Matching weights are controlled via SearchParams (mfcc_weight, spectral_weight, etc.).
+ * The filter bank is constructed lazily on the first `analyse()` call for a
+ * given (sample_rate, block_size) pair and cached for subsequent calls.
+ * Since all blocks in a Brain share the same sample_rate and block_size, the
+ * construction cost is O(1) per ingestion session rather than O(N).
  */
 class MfccAnalyser final : public port::IAnalyser {
 public:
-    /**
-     * @param fft          Injected FFT backend (PocketFFT or FFTW).
-     * @param num_mfcc     Number of MFCC coefficients (primary fingerprint size).
-     * @param num_fft_bins Number of FFT magnitude bins (secondary fingerprint size).
-     */
     explicit MfccAnalyser(std::shared_ptr<port::IFft> fft, int num_mfcc = 12,
                           int num_fft_bins = 100);
 
@@ -41,6 +39,14 @@ private:
     std::shared_ptr<port::IFft> fft_;
     int num_mfcc_;
     int num_fft_bins_;
+
+    // Cached filter bank — rebuilt only when (sample_rate, block_size) changes.
+    mutable std::mutex bank_mutex_;
+    mutable int cached_sample_rate_ = 0;
+    mutable std::size_t cached_block_size_ = 0;
+    mutable std::optional<MelFilterBank> bank_cache_;
+
+    const MelFilterBank& filterBank(int sample_rate, std::size_t block_size) const;
 };
 
 }  // namespace audio::adapter::analysis

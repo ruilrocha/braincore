@@ -5,7 +5,7 @@ from conan import ConanFile
 from conan.tools.cmake import cmake_layout, CMakeToolchain
 
 class ConanApplication(ConanFile):
-    package_type = "application"
+    package_type = "static-library"
     settings = "os", "compiler", "build_type", "arch"
     generators = "CMakeDeps"
 

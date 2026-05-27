@@ -30,7 +30,7 @@ class VpTreeSearch final : public port::ISearchStrategy {
 public:
     explicit VpTreeSearch(std::size_t num_candidates = 32);
 
-    [[nodiscard]] std::size_t search(const std::vector<double>& target_fp, const Brain& brain,
+    [[nodiscard]] std::size_t search(const TargetAnalysis& target, const Brain& brain,
                                      const SearchParams& params, std::size_t current_block_index,
                                      std::vector<double>& block_usages) const override;
 

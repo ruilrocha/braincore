@@ -7,3 +7,4 @@ videos/
 .idea
 CMakeUserPresets.json
 conan_provider.cmake
+.build

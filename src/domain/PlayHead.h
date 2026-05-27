@@ -51,18 +51,13 @@ public:
     PlayHead& operator=(PlayHead&&) = default;
 
     /**
-     * Select the best-matching block for @p target_fp, update internal state.
+     * Select the best-matching block for @p target, update internal state.
      *
-     * Calls the injected ISearchStrategy with the PlayHead's own usage counters
-     * and current index.  Returns the chosen block index into brain().blocks().
-     *
-     * @param target_fp  Primary fingerprint of the target block (output of
-     *                   IAnalyser::compute() on the windowed target block).
-     * @param params     Live search / blend / effect parameters snapshot.
-     * @return           Index into brain().blocks() of the chosen block.
+     * @param target  Raw + normalised fingerprints of the target block.
+     * @param params  Live search / blend / effect parameters snapshot.
+     * @return        Index into brain().blocks() of the chosen block.
      */
-    [[nodiscard]] std::size_t advance(const std::vector<double>& target_fp,
-                                      const SearchParams& params);
+    [[nodiscard]] std::size_t advance(const TargetAnalysis& target, const SearchParams& params);
 
     /**
      * Reset traversal state: position returns to 0, all usage counters clear.

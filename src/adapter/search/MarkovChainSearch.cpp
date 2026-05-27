@@ -14,12 +14,11 @@ namespace audio::adapter::search {
 MarkovChainSearch::MarkovChainSearch(const double temperature, const std::size_t num_synapses)
     : temperature_(temperature), num_synapses_(num_synapses) {}
 
-std::size_t MarkovChainSearch::search(const std::vector<double>& target_fp,
-                                      const audio::Brain& brain, const SearchParams& params,
+std::size_t MarkovChainSearch::search(const TargetAnalysis& target, const audio::Brain& brain,
+                                      const SearchParams& params,
                                       const std::size_t current_block_index,
                                       std::vector<double>& block_usages) const {
     const auto& blocks = brain.blocks();
-    const auto& analyser = brain.analyser();
 
     if (blocks.empty()) {
         return 0;
@@ -38,52 +37,50 @@ std::size_t MarkovChainSearch::search(const std::vector<double>& target_fp,
 
     const std::size_t limit = std::min(num_synapses_, neighbours.size());
 
-    // 1. Score each synapse candidate: target affinity + proximity bonus + usage penalty.
+    // Score each synapse: full weighted distance + usage penalty + proximity bias.
     std::vector<double> scores(limit);
     double min_score = std::numeric_limits<double>::max();
 
-    for (std::size_t candidate_idx = 0; candidate_idx < limit; ++candidate_idx) {
-        const std::size_t block_idx = neighbours[candidate_idx];
+    for (std::size_t i = 0; i < limit; ++i) {
+        const std::size_t block_idx = neighbours[i];
+        if (block_idx >= blocks.size()) continue;
         const double usage = (block_idx < block_usages.size()) ? block_usages[block_idx] : 0.0;
-        const double target_dist = analyser.distance(target_fp, blocks[block_idx].print.mfcc);
-        const double proximity_bonus = static_cast<double>(candidate_idx) * 0.01;
-        scores[candidate_idx] = target_dist + proximity_bonus + (usage * params.usage_weight);
-        min_score = std::min(scores[candidate_idx], min_score);
+        const double dist = SearchUtils::weightedDist(target, blocks[block_idx].print,
+                                                      blocks[block_idx].normalised_print, params);
+        const double proximity_bias = static_cast<double>(i) * 0.01;
+        scores[i] = dist + (usage * params.usage_weight) + proximity_bias;
+        min_score = std::min(scores[i], min_score);
     }
 
-    // 2. Convert to softmax probabilities.
+    // Softmax over scores (shifted for numerical stability).
     const double temp = std::max(temperature_, 1e-10);
     std::vector<double> probs(limit);
-    for (std::size_t prob_idx = 0; prob_idx < limit; ++prob_idx) {
-        probs[prob_idx] = std::exp(-(scores[prob_idx] - min_score) / temp);
+    for (std::size_t i = 0; i < limit; ++i) {
+        probs[i] = std::exp(-(scores[i] - min_score) / temp);
     }
-
     const double total = std::accumulate(probs.begin(), probs.end(), 0.0);
     if (total <= 0.0) {
         SearchUtils::applyUsage(block_usages, current_block_index, params.usage_falloff);
         return current_block_index;
     }
-    for (auto& prob : probs) {
-        prob /= total;
-    }
+    for (auto& p : probs) p /= total;
 
-    // 3. Sample from the distribution.
-    const double random_double = rng::randomDouble();
+    // Sample from the distribution.
+    const double r = rng::randomDouble();
     double cumulative = 0.0;
     std::size_t selected_synapse = limit - 1;
-    for (std::size_t synapse_idx = 0; synapse_idx < limit; ++synapse_idx) {
-        cumulative += probs[synapse_idx];
-        if (random_double <= cumulative) {
-            selected_synapse = synapse_idx;
+    for (std::size_t i = 0; i < limit; ++i) {
+        cumulative += probs[i];
+        if (r <= cumulative) {
+            selected_synapse = i;
             break;
         }
     }
 
     const std::size_t selected = neighbours[selected_synapse];
     SearchUtils::applyUsage(block_usages, selected, params.usage_falloff);
-
-    return SearchUtils::stickify(target_fp, blocks, analyser, selected, scores[selected_synapse],
-                                 current_block_index, params.stickyness);
+    return SearchUtils::stickify(target, blocks, block_usages, selected, scores[selected_synapse],
+                                 current_block_index, params);
 }
 
 }  // namespace audio::adapter::search

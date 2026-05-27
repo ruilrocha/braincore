@@ -33,4 +33,16 @@ struct AudioPrint {
     double dominant_freq = 0.0;    ///< Dominant frequency (Hz, spectral peak).
 };
 
+/**
+ * A pair of AudioPrints for a target block: raw and amplitude-normalised.
+ *
+ * Passed to search strategies so they can apply n_ratio blending correctly.
+ * The raw print is always required; the normalised print is only computed when
+ * `SearchParams::n_ratio > 0`.
+ */
+struct TargetAnalysis {
+    AudioPrint print;             ///< Raw fingerprint (from windowed samples).
+    AudioPrint normalised_print;  ///< Amplitude-normalised fingerprint (DC-removed + peak-scaled).
+};
+
 }  // namespace audio

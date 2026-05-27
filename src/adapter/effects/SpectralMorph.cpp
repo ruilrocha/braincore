@@ -1,4 +1,4 @@
-#include "FftwSpectralMorph.h"
+#include "SpectralMorph.h"
 
 #include <algorithm>
 #include <cmath>

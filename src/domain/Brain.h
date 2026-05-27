@@ -116,7 +116,10 @@ public:
     /** Enable or disable a source sound by filename. */
     void activateSound(const std::string& filename, bool active);
 
-    /** Check whether the block at @p index belongs to an enabled source. */
+    /**
+     * Check whether the block at @p index belongs to an enabled source.
+     * O(1) — uses a precomputed active-flag vector.
+     */
     [[nodiscard]] bool isBlockActive(std::size_t index) const;
 
     /** Access loaded source metadata. */
@@ -153,8 +156,11 @@ private:
     BlockConfig config_;
     std::vector<Block> blocks_;
     std::vector<SourceSound> sources_;
+    std::vector<bool> block_active_;  ///< Precomputed: true iff blocks_[i] belongs to an enabled source.
 
     std::optional<NearestNeighbourIndex> index_;
+
+    void rebuildActiveFlags();
 };
 
 }  // namespace audio

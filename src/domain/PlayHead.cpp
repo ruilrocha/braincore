@@ -1,5 +1,7 @@
 #include "PlayHead.h"
 
+#include "Brain.h"
+
 #include <algorithm>
 #include <utility>
 
@@ -13,9 +15,9 @@ PlayHead::PlayHead(std::shared_ptr<const Brain> brain,
     }
 }
 
-std::size_t PlayHead::advance(const std::vector<double>& target_fp, const SearchParams& params) {
+std::size_t PlayHead::advance(const TargetAnalysis& target, const SearchParams& params) {
     current_block_idx_ =
-        search_->search(target_fp, *brain_, params, current_block_idx_, block_usages_);
+        search_->search(target, *brain_, params, current_block_idx_, block_usages_);
     return current_block_idx_;
 }
 

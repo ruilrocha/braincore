@@ -13,43 +13,47 @@ namespace audio {
  * Pure-domain utility: apply a window function to audio samples in-place.
  *
  * All math is standard C++ — no external library dependencies.
+ *
+ * For hot paths (e.g. Brain::addSound), prefer:
+ *   1. `makeCoefficients(size, shape)` once per sound to precompute the window.
+ *   2. `applyCoefficients(samples, coeffs)` once per block — just a multiply loop.
  */
 struct WindowFunction {
     /**
-     * Multiply @p samples by the chosen window shape in-place.
-     * If shape is Rectangle the data is left untouched (identity window).
+     * Precompute window coefficients for the given shape and block size.
+     *
+     * Returns an all-ones vector for `Rectangle` (identity window), so
+     * `applyCoefficients` can be skipped entirely for that shape.
      */
-    static void apply(std::vector<double>& samples, const WindowShape shape) {
-        if (shape == WindowShape::Rectangle || samples.empty()) {
-            return;
+    [[nodiscard]] static std::vector<double> makeCoefficients(std::size_t size, WindowShape shape) {
+        std::vector<double> coeffs(size, 1.0);
+        if (shape == WindowShape::Rectangle || size == 0) {
+            return coeffs;
         }
 
-        const auto num_samples = static_cast<double>(samples.size());
+        const auto num_samples = static_cast<double>(size);
         constexpr double pi2 = 2.0 * std::numbers::pi;
 
-        for (auto index = 0; index < samples.size(); ++index) {
+        for (std::size_t index = 0; index < size; ++index) {
             const auto nd = static_cast<double>(index);
-            double win_coeff = 1.0;
-
+            double w = 1.0;
             switch (shape) {
                 case WindowShape::Hamming:
-                    win_coeff = 0.53836 - (0.46164 * std::cos(pi2 * nd / (num_samples - 1.0)));
+                    w = 0.53836 - (0.46164 * std::cos(pi2 * nd / (num_samples - 1.0)));
                     break;
                 case WindowShape::Hann:
-                    win_coeff = 0.5 * (1.0 - std::cos(pi2 * nd / (num_samples - 1.0)));
+                    w = 0.5 * (1.0 - std::cos(pi2 * nd / (num_samples - 1.0)));
                     break;
                 case WindowShape::Blackman:
-                    win_coeff =
-                        0.42 - (0.5 * std::cos(pi2 * nd / (num_samples - 1.0))) +
+                    w = 0.42 - (0.5 * std::cos(pi2 * nd / (num_samples - 1.0))) +
                         (0.08 * std::cos(4.0 * std::numbers::pi * nd / (num_samples - 1.0)));
                     break;
                 case WindowShape::Bartlett:
-                    win_coeff = 1.0 - ((2.0 * std::fabs(nd - ((num_samples - 1.0) / 2.0))) /
-                                       (num_samples - 1.0));
+                    w = 1.0 - ((2.0 * std::fabs(nd - ((num_samples - 1.0) / 2.0))) /
+                               (num_samples - 1.0));
                     break;
                 case WindowShape::FlatTop:
-                    win_coeff =
-                        1.0 - (1.93 * std::cos(pi2 * nd / (num_samples - 1.0))) +
+                    w = 1.0 - (1.93 * std::cos(pi2 * nd / (num_samples - 1.0))) +
                         (1.29 * std::cos(4.0 * std::numbers::pi * nd / (num_samples - 1.0))) -
                         (0.388 * std::cos(6.0 * std::numbers::pi * nd / (num_samples - 1.0))) +
                         (0.0322 * std::cos(8.0 * std::numbers::pi * nd / (num_samples - 1.0)));
@@ -58,14 +62,41 @@ struct WindowFunction {
                     constexpr double sigma = 0.5;
                     const double arg =
                         (nd - (num_samples - 1.0) / 2.0) / (sigma * (num_samples - 1.0) / 2.0);
-                    win_coeff = std::exp(-0.5 * arg * arg);
+                    w = std::exp(-0.5 * arg * arg);
                     break;
                 }
                 case WindowShape::Rectangle:
-                    break;  // already handled above
+                    break;
             }
-            samples[index] *= win_coeff;
+            coeffs[index] = w;
         }
+        return coeffs;
+    }
+
+    /**
+     * Apply precomputed window coefficients to samples in-place.
+     *
+     * @p coeffs must be the same size as @p samples. If sizes differ, the
+     * shorter length is used (safe but likely a programming error).
+     */
+    static void applyCoefficients(std::vector<double>& samples,
+                                  const std::vector<double>& coeffs) {
+        const std::size_t n = std::min(samples.size(), coeffs.size());
+        for (std::size_t i = 0; i < n; ++i) {
+            samples[i] *= coeffs[i];
+        }
+    }
+
+    /**
+     * Convenience overload: compute coefficients on the fly and apply them.
+     * Use `makeCoefficients` + `applyCoefficients` in hot paths instead.
+     */
+    static void apply(std::vector<double>& samples, const WindowShape shape) {
+        if (shape == WindowShape::Rectangle || samples.empty()) {
+            return;
+        }
+        const auto coeffs = makeCoefficients(samples.size(), shape);
+        applyCoefficients(samples, coeffs);
     }
 
     /**
@@ -77,32 +108,28 @@ struct WindowFunction {
             return;
         }
 
-        // Find min / max.
         double min = samples[0];
         double max = samples[0];
-        for (const double sample : samples) {
-            min = std::min(sample, min);
-            max = std::max(sample, max);
+        for (const double s : samples) {
+            if (s < min) min = s;
+            if (s > max) max = s;
         }
 
-        // Remove DC (centre on zero).
-        const double mid = min + ((max - min) / 2.0);
-        for (double& sample : samples) {
-            sample -= mid;
+        const double mid = min + ((max - min) * 0.5);
+        for (double& s : samples) {
+            s -= mid;
         }
 
-        // Scale so the largest absolute value is 1.0.
         min -= mid;
         max -= mid;
-        double div = std::fabs(min);
-        div = std::max(div, max);
-        if (div == 0.0) {
+        const double peak = std::max(std::fabs(min), std::fabs(max));
+        if (peak < 1e-12) {
             return;  // silent block
         }
 
-        const double inv = 1.0 / div;
-        for (double& sample : samples) {
-            sample *= inv;
+        const double inv = 1.0 / peak;
+        for (double& s : samples) {
+            s *= inv;
         }
     }
 };

@@ -3,12 +3,12 @@
 #include <vector>
 
 /**
- * Shared audio effect helpers for block-level post-processing.
+ * Audio effect helpers for block-level post-processing.
  *
- * Used by both SoundProcessor (batch) and StreamProcessor (real-time)
- * to avoid code duplication.
+ * Granular synthesis, stutter, and amplitude envelope shaping utilities.
+ * Pure C++/math — no external dependencies, iOS-safe.
  */
-namespace audio::usecase::effects {
+namespace audio::effects {
 
 /// Apply a Hann (raised-cosine) envelope to a grain in-place.
 void applyGrainEnvelope(std::vector<double>& grain);
@@ -56,4 +56,4 @@ void applyStutter(std::vector<double>& samples, double chance, int count);
  */
 void applyEnvelope(std::vector<double>& samples, int shape, double amount);
 
-}  // namespace audio::usecase::effects
+}  // namespace audio::effects

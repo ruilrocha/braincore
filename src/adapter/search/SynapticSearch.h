@@ -25,9 +25,8 @@ class SynapticSearch final : public port::ISearchStrategy {
 public:
     explicit SynapticSearch(std::size_t num_synapses = 100);
 
-    [[nodiscard]] std::size_t search(const std::vector<double>& target_fp,
-                                     const audio::Brain& brain, const SearchParams& params,
-                                     std::size_t current_block_index,
+    [[nodiscard]] std::size_t search(const TargetAnalysis& target, const audio::Brain& brain,
+                                     const SearchParams& params, std::size_t current_block_index,
                                      std::vector<double>& block_usages) const override;
 
 private:

@@ -1,8 +1,8 @@
 #pragma once
 
+#include "../../domain/AudioPrint.h"
 #include "../../domain/Block.h"
 #include "../../domain/SearchParams.h"
-#include "../../domain/port/IAnalyser.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -22,33 +22,10 @@
  */
 namespace audio::adapter::search::SearchUtils {
 
-/**
- * Apply stickyness: if the next sequential block is "close enough" compared
- * to the global winner, prefer it for temporal coherence.
- */
-inline std::size_t stickify(const std::vector<double>& target_fp, const std::vector<Block>& blocks,
-                            const port::IAnalyser& analyser, const std::size_t closest_idx,
-                            const double closest_dist, const std::size_t current_idx,
-                            const double stickyness) {
-    if (stickyness <= 0.0) {
-        return closest_idx;
-    }
-
-    const std::size_t next = current_idx + 1;
-    if (next >= blocks.size()) {
-        return closest_idx;
-    }
-
-    const double next_dist = analyser.distance(target_fp, blocks[next].print.mfcc);
-
-    if (next_dist * (1.0 - stickyness) < closest_dist * stickyness) {
-        return next;
-    }
-    return closest_idx;
-}
+// ── Usage tracking ─────────────────────────────────────────────────────
 
 /**
- * Deplete all usage counters and increment the selected block's counter.
+ * Deplete all usage counters by `falloff` then increment the selected block's counter.
  */
 inline void applyUsage(std::vector<double>& block_usages, const std::size_t selected_idx,
                        const double falloff) {
@@ -62,146 +39,159 @@ inline void applyUsage(std::vector<double>& block_usages, const std::size_t sele
     }
 }
 
-// ── Multi-feature blended distance computation ─────────────────────────
+// ── Multi-feature distance computation ────────────────────────────────
 
 namespace detail {
 
-/// Sum of squared differences over a range [start, end), normalised by length.
+/// Sum of squared differences over a range [start, end), normalised by range length.
 inline double ssd(const std::vector<double>& a, const std::vector<double>& b, std::size_t start,
                   std::size_t end) {
-    double acc = 0.0;
     const std::size_t lim = std::min({end, a.size(), b.size()});
+    if (lim <= start) {
+        return 0.0;
+    }
+    double acc = 0.0;
     for (std::size_t i = start; i < lim; ++i) {
         const double d = a[i] - b[i];
         acc += d * d;
     }
-    const std::size_t n = lim > start ? lim - start : 1;
-    return acc / static_cast<double>(n);
+    return acc / static_cast<double>(lim - start);
 }
 
-/// Normalised SSD over the full vector.
+/// Normalised SSD over the full (overlapping) length of two vectors.
 inline double ssdFull(const std::vector<double>& a, const std::vector<double>& b) {
-    const std::size_t n = std::max(std::min(a.size(), b.size()), std::size_t{1});
+    const std::size_t n = std::min(a.size(), b.size());
+    if (n == 0) return 0.0;
     return ssd(a, b, 0, n);
 }
 
+/// Linear blend: a*(1−t) + b*t.
+inline double blend(double a, double b, double t) {
+    return (a * (1.0 - t)) + (b * t);
+}
+
 /**
- * Compute the full multi-feature distance between two AudioPrint bundles.
+ * Weighted multi-feature distance between two AudioPrint bundles.
  *
- * Weights from @p params are normalised so they sum to 1.0, making each
- * weight a true percentage contribution.  If all weights are zero, pure
- * MFCC distance is used (backwards-compatible fallback).
- *
- * Active features: mfcc, mel, spectral, chroma.
- *
- * @param raw_a      Raw (or normalised) AudioPrint of block A.
- * @param raw_b      Raw (or normalised) AudioPrint of block B.
- * @param params     Search parameters with per-feature weights.
- * @return           Weighted distance score (lower = better match).
+ * Weights are normalised to sum = 1.0 so each slider is a true percentage.
+ * Falls back to pure MFCC when all weights are zero.
  */
-inline double weightedDistance(const AudioPrint& raw_a, const AudioPrint& raw_b,
+inline double weightedDistance(const AudioPrint& a, const AudioPrint& b,
                                const SearchParams& params) {
     const double w_mfcc = std::max(0.0, params.mfcc_weight);
     const double w_mel = std::max(0.0, params.mel_weight);
     const double w_spectral = std::max(0.0, params.spectral_weight);
     const double w_chroma = std::max(0.0, params.chroma_weight);
-
     const double total_w = w_mfcc + w_mel + w_spectral + w_chroma;
 
-    // Pure MFCC fallback when all weights are zero.
     if (total_w < 1e-12) {
-        return ssdFull(raw_a.mfcc, raw_b.mfcc);
+        return ssdFull(a.mfcc, b.mfcc);  // pure MFCC fallback
     }
 
     double score = 0.0;
-
-    if (w_mfcc > 0.0) {
-        score += (w_mfcc / total_w) * ssdFull(raw_a.mfcc, raw_b.mfcc);
-    }
-    if (w_mel > 0.0) {
-        score += (w_mel / total_w) * ssdFull(raw_a.mel, raw_b.mel);
-    }
+    if (w_mfcc > 0.0) score += (w_mfcc / total_w) * ssdFull(a.mfcc, b.mfcc);
+    if (w_mel > 0.0) score += (w_mel / total_w) * ssdFull(a.mel, b.mel);
     if (w_spectral > 0.0) {
-        const auto sec_start = static_cast<std::size_t>(std::max(0, params.spectral_start));
-        const auto sec_end = static_cast<std::size_t>(std::max(0, params.spectral_end));
-        score += (w_spectral / total_w) * ssd(raw_a.spectral, raw_b.spectral, sec_start, sec_end);
+        const auto s0 = static_cast<std::size_t>(std::max(0, params.spectral_start));
+        const auto s1 = static_cast<std::size_t>(std::max(0, params.spectral_end));
+        score += (w_spectral / total_w) * ssd(a.spectral, b.spectral, s0, s1);
     }
-    if (w_chroma > 0.0) {
-        score += (w_chroma / total_w) * ssdFull(raw_a.chroma, raw_b.chroma);
-    }
+    if (w_chroma > 0.0) score += (w_chroma / total_w) * ssdFull(a.chroma, b.chroma);
 
     return score;
 }
 
-/// Linear blend: a*(1-t) + b*t.
-inline double blend(double a, double b, double t) {
-    return (a * (1.0 - t)) + (b * t);
-}
-
 }  // namespace detail
 
+// ── Core scoring functions ─────────────────────────────────────────────
+
 /**
- * Compute the full blended distance between a target block and a candidate
- * brain block, considering:
- *   - per-feature weights (mfcc, mel, spectral, chroma, pitch), normalised to sum = 1.0
- *   - raw vs. normalised fingerprint blend (n_ratio)
- *   - usage penalty (novelty), read from @p block_usages
+ * Weighted distance between a TargetAnalysis and a candidate block's prints.
  *
- * @return Combined distance score (lower = better match).
+ * Applies n_ratio to blend between raw and amplitude-normalised comparisons.
+ * Does NOT include the usage penalty — add that separately if needed.
  */
-inline double fullScore(const Block& target, const Block& candidate,
-                        const std::vector<double>& block_usages, const std::size_t candidate_idx,
-                        const SearchParams& params) {
-    // Raw comparison.
-    double dist = detail::weightedDistance(target.print, candidate.print, params);
-
-    // Blend in normalised comparison (if n_ratio > 0).
+inline double weightedDist(const TargetAnalysis& target, const AudioPrint& candidate_print,
+                            const AudioPrint& candidate_norm_print, const SearchParams& params) {
+    double d = detail::weightedDistance(target.print, candidate_print, params);
     if (params.n_ratio > 0.0) {
-        const double norm_dist =
-            detail::weightedDistance(target.normalised_print, candidate.normalised_print, params);
-        dist = detail::blend(dist, norm_dist, params.n_ratio);
+        const double nd =
+            detail::weightedDistance(target.normalised_print, candidate_norm_print, params);
+        d = detail::blend(d, nd, params.n_ratio);
     }
-
-    // Usage penalty ("novelty").
-    if (candidate_idx < block_usages.size()) {
-        dist += block_usages[candidate_idx] * params.usage_weight;
-    }
-    return dist;
+    return d;
 }
+
+/**
+ * Full score for a candidate block: weighted distance + usage penalty.
+ *
+ * @param target          Raw + normalised target fingerprints.
+ * @param candidate_print Raw AudioPrint of the candidate block.
+ * @param candidate_norm  Normalised AudioPrint of the candidate block.
+ * @param candidate_usage Current usage counter for the candidate.
+ * @param params          Search parameters.
+ * @return                Score (lower = better match).
+ */
+inline double fullScore(const TargetAnalysis& target, const AudioPrint& candidate_print,
+                        const AudioPrint& candidate_norm, double candidate_usage,
+                        const SearchParams& params) {
+    return weightedDist(target, candidate_print, candidate_norm, params) +
+           (candidate_usage * params.usage_weight);
+}
+
+// ── Stickyness ─────────────────────────────────────────────────────────
+
+/**
+ * Apply stickyness: if the next sequential block scores well enough compared
+ * to the global winner, prefer it for temporal coherence.
+ */
+inline std::size_t stickify(const TargetAnalysis& target, const std::vector<Block>& blocks,
+                            const std::vector<double>& block_usages, const std::size_t closest_idx,
+                            const double closest_score, const std::size_t current_idx,
+                            const SearchParams& params) {
+    if (params.stickyness <= 0.0) {
+        return closest_idx;
+    }
+    const std::size_t next = current_idx + 1;
+    if (next >= blocks.size()) {
+        return closest_idx;
+    }
+    const double next_usage = (next < block_usages.size()) ? block_usages[next] : 0.0;
+    const double next_score =
+        fullScore(target, blocks[next].print, blocks[next].normalised_print, next_usage, params);
+
+    if (next_score * (1.0 - params.stickyness) < closest_score * params.stickyness) {
+        return next;
+    }
+    return closest_idx;
+}
+
+// ── Candidate scoring ──────────────────────────────────────────────────
 
 /**
  * Score a range of candidate block indices and return the best-matching one.
  *
- * Uses `analyser.distance(target_fp, block.print.mfcc) + usage_weight * usage`
- * — the same scoring used by all deterministic strategies.  Centralises the
- * loop so ClosestSearch and SynapticSearch share a single implementation.
- *
- * @param indices       Range of candidate indices into @p blocks.  Any index
- *                      out of range of @p blocks is skipped.
- * @param target_fp     Primary fingerprint of the target block.
- * @param blocks        All blocks in the brain (read-only).
- * @param analyser      Analyser used for distance computation.
- * @param block_usages  Per-block usage counters (caller-owned).
- * @param params        Search tuning parameters.
- * @return              {best_index, best_score}.  If @p indices is empty,
- *                      returns {0, numeric_limits<double>::max()}.
+ * @param indices      Range of candidate indices into @p blocks.
+ * @param target       Raw + normalised target fingerprints.
+ * @param blocks       All blocks in the brain (read-only).
+ * @param block_usages Per-block usage counters.
+ * @param params       Search parameters.
+ * @return             {best_index, best_score}.
  */
 template <typename IndexRange>
 inline std::pair<std::size_t, double> scoreCandidates(const IndexRange& indices,
-                                                      const std::vector<double>& target_fp,
+                                                      const TargetAnalysis& target,
                                                       const std::vector<Block>& blocks,
-                                                      const port::IAnalyser& analyser,
                                                       const std::vector<double>& block_usages,
                                                       const SearchParams& params) {
     double best_score = std::numeric_limits<double>::max();
     std::size_t best_idx = 0;
+
     for (const std::size_t i : indices) {
-        if (i >= blocks.size()) {
-            continue;
-        }
+        if (i >= blocks.size()) continue;
         const double usage = (i < block_usages.size()) ? block_usages[i] : 0.0;
         const double score =
-            analyser.distance(target_fp, blocks[i].print.mfcc) + (usage * params.usage_weight);
+            fullScore(target, blocks[i].print, blocks[i].normalised_print, usage, params);
         if (score < best_score) {
             best_score = score;
             best_idx = i;

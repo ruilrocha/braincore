@@ -1,12 +1,12 @@
 #include "EffectHelpers.h"
 
-#include "../domain/Random.h"
+#include "../../domain/Random.h"
 
 #include <algorithm>
 #include <cmath>
 #include <numbers>
 
-namespace audio::usecase::effects {
+namespace audio::effects {
 
 // ── Grain envelope ─────────────────────────────────────────────────────
 
@@ -224,4 +224,4 @@ void applyEnvelope(std::vector<double>& samples, const int shape, const double a
     }
 }
 
-}  // namespace audio::usecase::effects
+}  // namespace audio::effects

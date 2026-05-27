@@ -46,7 +46,6 @@ audio::Block makeBlock(const std::vector<double>& mfcc) {
     b.print.spectral = mfcc;
     b.normalised_print.mfcc = mfcc;
     b.normalised_print.spectral = mfcc;
-    b.samples = mfcc;
     return b;
 }
 
@@ -74,7 +73,9 @@ TEST(ClosestSearch, PicksNearestBlock) {
     params.usage_weight = 0.0;
 
     std::vector<double> block_usages(blocks.size(), 0.0);
-    const std::vector target = {0.1};
+    audio::TargetAnalysis target;
+    target.print.mfcc = {0.1};
+    target.normalised_print.mfcc = {0.1};
     const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
     EXPECT_EQ(idx, 0U);
 }
@@ -93,7 +94,9 @@ TEST(ClosestSearch, PicksMiddleBlockWhenClosest) {
     params.usage_weight = 0.0;
 
     std::vector<double> block_usages(blocks.size(), 0.0);
-    const std::vector target = {0.9};
+    audio::TargetAnalysis target;
+    target.print.mfcc = {0.9};
+    target.normalised_print.mfcc = {0.9};
     const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
     EXPECT_EQ(idx, 1U);
 }
@@ -114,7 +117,10 @@ TEST(ClosestSearch, UsagePenaltyShiftsSelection) {
     params.stickyness = 0.0;
     params.usage_weight = 1.0;
 
-    const std::vector target = {0.0};
+    const std::vector target_vec = {0.0};
+    audio::TargetAnalysis target;
+    target.print.mfcc = target_vec;
+    target.normalised_print.mfcc = target_vec;
     const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
     EXPECT_EQ(idx, 1U);
 }
@@ -127,7 +133,9 @@ TEST(ClosestSearch, SingleBlockAlwaysSelected) {
     constexpr audio::SearchParams params;
 
     std::vector<double> block_usages(blocks.size(), 0.0);
-    const std::vector target = {0.0};
+    audio::TargetAnalysis target;
+    target.print.mfcc = {0.0};
+    target.normalised_print.mfcc = {0.0};
     const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
     EXPECT_EQ(idx, 0U);
 }
