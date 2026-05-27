@@ -236,7 +236,7 @@ int main(int argc, char* argv[]) {
     // Shared video source adapter — reused across all modes.
     auto video_source = std::make_shared<audio::adapter::video::FfmpegVideoSource>(4, 44100);
 
-    std::string current_search_name = "closest";
+    std::string current_search_name = "vptree";
     // search and synapse_graph are built after brain is loaded (see below)
 
     // ── Block configuration ────────────────────────────────────────────

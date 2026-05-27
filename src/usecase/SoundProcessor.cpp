@@ -1,7 +1,8 @@
 #include "SoundProcessor.h"
 
-#include "../domain/WindowFunction.h"
 #include "EffectHelpers.h"
+#include "domain/PlayHead.h"
+#include "domain/WindowFunction.h"
 
 #include <algorithm>
 #include <utility>
@@ -23,8 +24,7 @@ SoundProcessor::SoundProcessor(std::shared_ptr<port::ISearchStrategy> search,
 
 Sound SoundProcessor::process(const std::shared_ptr<const Brain>& brain, const Sound& target,
                               const ProgressFn& on_progress) const {
-    const auto& target_channels = target.getChannels();
-    if (target_channels.empty() || !brain) {
+    if (const auto& target_channels = target.getChannels(); target_channels.empty() || !brain) {
         return {std::vector<Channel>{}, target.getSampleRate()};
     }
 
