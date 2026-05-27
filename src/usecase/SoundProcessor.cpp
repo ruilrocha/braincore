@@ -1,7 +1,8 @@
 #include "SoundProcessor.h"
 
-#include "../domain/WindowFunction.h"
 #include "EffectHelpers.h"
+#include "domain/PlayHead.h"
+#include "domain/WindowFunction.h"
 
 #include <algorithm>
 #include <utility>
@@ -21,9 +22,9 @@ SoundProcessor::SoundProcessor(std::shared_ptr<port::ISearchStrategy> search,
 
 // ── Main processing pipeline ───────────────────────────────────────────
 
-Sound SoundProcessor::process(const Brain& brain, const Sound& target) const {
-    const auto& target_channels = target.getChannels();
-    if (target_channels.empty()) {
+Sound SoundProcessor::process(const std::shared_ptr<const Brain>& brain, const Sound& target,
+                              const ProgressFn& on_progress) const {
+    if (const auto& target_channels = target.getChannels(); target_channels.empty() || !brain) {
         return {std::vector<Channel>{}, target.getSampleRate()};
     }
 
@@ -34,7 +35,6 @@ Sound SoundProcessor::process(const Brain& brain, const Sound& target) const {
 
     const auto& ch0 = target.getChannel(0);
     const int sample_rate = target.getSampleRate();
-    const auto& analyser = brain.analyser();
     const auto num_channels = static_cast<std::size_t>(target.getNumChannels());
     const double alpha = params_.alpha;
 
@@ -53,47 +53,45 @@ Sound SoundProcessor::process(const Brain& brain, const Sound& target) const {
         return {std::vector<Channel>{}, sample_rate};
     }
 
-    // Per-block usage counters (batch-mode local state — not shared across calls).
-    std::vector<double> block_usages(brain.size(), 0.0);
-    std::size_t current_idx = 0;
-
-    // 2. Match each target block (channel 0) against the brain.
-    std::vector<const Block*> matches(num_blocks);
-
-    for (std::size_t block_idx = 0; block_idx < num_blocks; ++block_idx) {
-        const auto offset = static_cast<std::ptrdiff_t>(block_idx * step);
-        std::vector block_samples(ch0.begin() + offset,
-                                  ch0.begin() + offset + static_cast<std::ptrdiff_t>(bs));
-
-        WindowFunction::apply(block_samples, target_config_.window);
-        const auto fp = analyser.compute(block_samples, sample_rate);
-        current_idx =
-            search_->search(fp, brain.blocks(), analyser, params_, current_idx, block_usages);
-        matches[block_idx] = &brain.blocks()[current_idx];
-
-        // Notify video output for this matched block.
-        if (video_output_) {
-            const std::size_t samples = (block_idx < num_blocks - 1) ? step : bs;
-            const double block_dur =
-                static_cast<double>(samples) / static_cast<double>(sample_rate);
-            video_output_->onBlock(matches[block_idx]->video, block_dur);
-        }
-    }
-
-    // 3. Reconstruct every channel using overlap-add.
+    // 2. Allocate output buffers.
     const std::size_t output_samples = ((num_blocks - 1) * step) + bs;
     std::vector output_channels(num_channels, Channel(output_samples, 0.0));
     std::vector weight_acc(output_samples, 0.0);
 
-    for (std::size_t ch = 0; ch < num_channels; ++ch) {
-        const auto& tgt_ch = target.getChannel(static_cast<int>(ch));
+    // 3. Single-pass: match + synthesise + overlap-add per block.
+    PlayHead ph(brain, search_);
 
-        for (std::size_t block_idx = 0; block_idx < num_blocks; ++block_idx) {
-            const std::size_t out_offset = block_idx * step;
-            const std::size_t tgt_offset = block_idx * step;
+    // Track previous matched samples per channel for spectral morph.
+    std::vector<std::vector<double>> prev_ch_samples(num_channels);
 
-            // Get source samples for this channel.
-            const auto& match = *matches[block_idx];
+    for (std::size_t block_idx = 0; block_idx < num_blocks; ++block_idx) {
+        const auto offset = static_cast<std::ptrdiff_t>(block_idx * step);
+
+        // ── Analysis ──────────────────────────────────────────────────
+        std::vector block_samples(ch0.begin() + offset,
+                                  ch0.begin() + offset + static_cast<std::ptrdiff_t>(bs));
+        WindowFunction::apply(block_samples, target_config_.window);
+        const auto fp = brain->analyser().compute(block_samples, sample_rate);
+
+        // ── Search ────────────────────────────────────────────────────
+        const std::size_t match_idx = ph.advance(fp, params_);
+        const Block& match = brain->blocks()[match_idx];
+
+        // ── Video notification ─────────────────────────────────────────
+        if (video_output_) {
+            const std::size_t samples = (block_idx < num_blocks - 1) ? step : bs;
+            const double block_dur =
+                static_cast<double>(samples) / static_cast<double>(sample_rate);
+            video_output_->onBlock(match.video, block_dur);
+        }
+
+        // ── Synthesis + overlap-add per channel ────────────────────────
+        const std::size_t out_offset = block_idx * step;
+        const std::size_t tgt_offset = block_idx * step;
+
+        for (std::size_t ch = 0; ch < num_channels; ++ch) {
+            const auto& tgt_ch = target.getChannel(static_cast<int>(ch));
+
             const std::vector<double>* src_ptr = &match.samples;
             if (ch < match.channel_samples.size() && !match.channel_samples[ch].empty()) {
                 src_ptr = &match.channel_samples[ch];
@@ -109,14 +107,8 @@ Sound SoundProcessor::process(const Brain& brain, const Sound& target) const {
             }
 
             // ── Spectral morph with previous block ─────────────────────
-            if (do_morph && block_idx > 0) {
-                const auto& prev_match = *matches[block_idx - 1];
-                const std::vector<double>* prev_ptr = &prev_match.samples;
-                if (ch < prev_match.channel_samples.size() &&
-                    !prev_match.channel_samples[ch].empty()) {
-                    prev_ptr = &prev_match.channel_samples[ch];
-                }
-                src = spectral_morph_->apply(*prev_ptr, src, params_.spectral_morph);
+            if (do_morph && !prev_ch_samples[ch].empty()) {
+                src = spectral_morph_->apply(prev_ch_samples[ch], src, params_.spectral_morph);
             }
 
             // ── Stutter ────────────────────────────────────────────────
@@ -128,6 +120,8 @@ Sound SoundProcessor::process(const Brain& brain, const Sound& target) const {
             if (do_envelope) {
                 effects::applyEnvelope(src, params_.envelope_shape, params_.envelope_amount);
             }
+
+            prev_ch_samples[ch] = src;
 
             // ── Overlap-add with triangular cross-fade ─────────────────
             for (std::size_t i = 0; i < bs; ++i) {
@@ -151,6 +145,10 @@ Sound SoundProcessor::process(const Brain& brain, const Sound& target) const {
                     weight_acc[out_offset + i] += env;
                 }
             }
+        }
+
+        if (on_progress != nullptr) {
+            on_progress(block_idx + 1, num_blocks);
         }
     }
 

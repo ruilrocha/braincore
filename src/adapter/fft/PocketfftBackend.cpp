@@ -8,10 +8,10 @@ namespace audio::adapter::fft {
 
 std::vector<port::IFft::ComplexValue> PocketfftBackend::forward(
     std::span<const double> input) const {
-    const auto N = input.size();
-    const auto half = (N / 2) + 1;
+    const auto num_input = input.size();
+    const auto half = (num_input / 2) + 1;
 
-    const pocketfft::shape_t shape{N};
+    const pocketfft::shape_t shape{num_input};
     const pocketfft::stride_t stride_in{sizeof(double)};
     const pocketfft::stride_t stride_out{sizeof(std::complex<double>)};
     const pocketfft::shape_t axes{0};
@@ -54,9 +54,9 @@ std::vector<double> PocketfftBackend::inverse(std::span<const ComplexValue> inpu
 
 std::vector<double> PocketfftBackend::dct(std::span<const double> input,
                                           std::size_t output_length) const {
-    const auto N = input.size();
+    const auto num_input = input.size();
 
-    pocketfft::shape_t shape{N};
+    pocketfft::shape_t shape{num_input};
     pocketfft::stride_t stride{sizeof(double)};
     pocketfft::shape_t axes{0};
 
@@ -66,8 +66,8 @@ std::vector<double> PocketfftBackend::dct(std::span<const double> input,
                    true /* ortho */);
 
     // Return only the first output_length coefficients.
-    const auto M = std::min(output_length, N);
-    buf.resize(M);
+    const auto num_coeffs = std::min(output_length, num_input);
+    buf.resize(num_coeffs);
     return buf;
 }
 

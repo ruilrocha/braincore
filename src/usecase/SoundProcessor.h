@@ -8,6 +8,7 @@
 #include "../domain/port/ISearchStrategy.h"
 #include "../domain/port/IVideoOutput.h"
 
+#include <functional>
 #include <memory>
 
 namespace audio::usecase {
@@ -40,7 +41,11 @@ public:
                             std::shared_ptr<port::IBlockEffect> spectral_morph = nullptr,
                             std::shared_ptr<port::IVideoOutput> video_output = nullptr);
 
-    [[nodiscard]] Sound process(const Brain& brain, const Sound& target) const;
+    /// Callback invoked after each block: (blocks_done, total_blocks).
+    using ProgressFn = std::function<void(std::size_t, std::size_t)>;
+
+    [[nodiscard]] Sound process(const std::shared_ptr<const Brain>& brain, const Sound& target,
+                                const ProgressFn& on_progress = nullptr) const;
 
 private:
     std::shared_ptr<port::ISearchStrategy> search_;

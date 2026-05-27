@@ -43,22 +43,29 @@ struct FfmpegVideoOutput::Impl {
     // Black frame re-used for audio-only blocks and fill.
     VideoFrame black_frame;
 
-    Impl(std::shared_ptr<port::IVideoSource> src, std::string path, int w, int h, double f)
-        : source(std::move(src)), output_path(std::move(path)), width(w), height(h), fps(f) {
+    Impl(std::shared_ptr<port::IVideoSource> src, std::string path, int img_w, int img_h,
+         double frame_fps)
+        : source(std::move(src)),
+          output_path(std::move(path)),
+          width(img_w),
+          height(img_h),
+          fps(frame_fps) {
         av::init();
         av::setFFmpegLoggingLevel(AV_LOG_FATAL);
 
-        black_frame = VideoFrame::black(w, h);
+        black_frame = VideoFrame::black(img_w, img_h);
     }
 
     bool open() {
-        if (opened)
+        if (opened) {
             return true;
+        }
 
         std::error_code ec;
         fmt_ctx.openOutput(output_path, ec);
-        if (ec)
+        if (ec) {
             return false;
+        }
 
         // H.264 encoder.
         av::Codec codec = av::findEncodingCodec(AV_CODEC_ID_H264);
@@ -77,24 +84,28 @@ struct FfmpegVideoOutput::Impl {
         opts.set("crf", "23");
         opts.set("bf", "0");  // Disable B-frames: no encoder delay, DTS==PTS from frame 0.
         enc_ctx.open(std::move(opts), codec, ec);
-        if (ec)
+        if (ec) {
             return false;
+        }
 
         vid_stream = fmt_ctx.addStream(enc_ctx, ec);
-        if (ec)
+        if (ec) {
             return false;
+        }
 
         fmt_ctx.writeHeader(ec);
-        if (ec)
+        if (ec) {
             return false;
+        }
 
         opened = true;
         return true;
     }
 
     void encodeFrame(const VideoFrame& frame) {
-        if (!opened || closed)
+        if (!opened || closed) {
             return;
+        }
 
         std::error_code ec;
 
@@ -102,8 +113,9 @@ struct FfmpegVideoOutput::Impl {
         // The output encoder is configured for AV_PIX_FMT_YUV420P.
         av::VideoFrame yuv(av::PixelFormat(AV_PIX_FMT_YUV420P), frame.width, frame.height);
         yuv.setComplete(true);
-        if (!yuv)
+        if (!yuv) {
             return;
+        }
 
         const int uv_h = frame.height / 2;
         const int uv_w = frame.width / 2;
@@ -111,39 +123,43 @@ struct FfmpegVideoOutput::Impl {
         if (const auto* yuv_src = std::get_if<Yuv420pData>(&frame.pixels)) {
             for (int row = 0; row < frame.height; ++row) {
                 std::memcpy(
-                    yuv.raw()->data[0] + row * yuv.raw()->linesize[0],
-                    yuv_src->y.data.data() + static_cast<std::size_t>(row) * yuv_src->y.stride,
+                    yuv.raw()->data[0] +
+                        (static_cast<std::ptrdiff_t>(row) * yuv.raw()->linesize[0]),
+                    yuv_src->y.data.data() + (static_cast<std::size_t>(row) * yuv_src->y.stride),
                     static_cast<std::size_t>(frame.width));
             }
             for (int row = 0; row < uv_h; ++row) {
                 std::memcpy(
-                    yuv.raw()->data[1] + row * yuv.raw()->linesize[1],
-                    yuv_src->u.data.data() + static_cast<std::size_t>(row) * yuv_src->u.stride,
+                    yuv.raw()->data[1] +
+                        (static_cast<std::ptrdiff_t>(row) * yuv.raw()->linesize[1]),
+                    yuv_src->u.data.data() + (static_cast<std::size_t>(row) * yuv_src->u.stride),
                     static_cast<std::size_t>(uv_w));
                 std::memcpy(
-                    yuv.raw()->data[2] + row * yuv.raw()->linesize[2],
-                    yuv_src->v.data.data() + static_cast<std::size_t>(row) * yuv_src->v.stride,
+                    yuv.raw()->data[2] +
+                        (static_cast<std::ptrdiff_t>(row) * yuv.raw()->linesize[2]),
+                    yuv_src->v.data.data() + (static_cast<std::size_t>(row) * yuv_src->v.stride),
                     static_cast<std::size_t>(uv_w));
             }
         } else {
             return;  // Unsupported pixel format for encoding.
         }
 
-        const av::Rational tb = enc_ctx.timeBase();
+        auto tb = enc_ctx.timeBase();
         // PTS = frame_index * (90000 / fps) — exact integer ticks in 90000Hz timebase.
-        const int64_t ticks_per_frame = static_cast<int64_t>(std::round(90000.0 / fps));
+        auto ticks_per_frame = static_cast<int64_t>(std::round(90000.0 / fps));
         yuv.setPts(av::Timestamp{pts * ticks_per_frame, tb});
         ++pts;
 
         auto pkt = enc_ctx.encode(yuv, ec);
-        if (ec || !pkt)
+        if (ec || !pkt) {
             return;
+        }
 
         // Fix the last-frame stts entry: set duration explicitly in encoder timebase.
         // libx264 may leave packet duration unset; the muxer then computes it from
         // PTS differences for all-but-last, leaving the last frame with duration 0.
         {
-            const av::Rational etb = enc_ctx.timeBase();
+            const auto etb = enc_ctx.timeBase();
             pkt.raw()->duration = static_cast<int64_t>(
                 std::round(static_cast<double>(etb.getDenominator()) / (fps * etb.getNumerator())));
         }
@@ -168,8 +184,9 @@ FfmpegVideoOutput::~FfmpegVideoOutput() {
 
 void FfmpegVideoOutput::onBlock(const std::optional<VideoSegment>& segment, double duration_sec,
                                 double /*block_audio_start_sec*/) {
-    if (!pimpl_->open())
+    if (!pimpl_->open()) {
         return;
+    }
 
     // Compute how many frames this block should contribute, using an integer
     // accumulator to avoid floating-point drift across thousands of blocks.
@@ -177,8 +194,9 @@ void FfmpegVideoOutput::onBlock(const std::optional<VideoSegment>& segment, doub
     const auto target_frames = static_cast<int64_t>(pimpl_->audio_time_acc * pimpl_->fps);
     const int64_t needed = target_frames - pimpl_->total_frame_acc;
 
-    if (needed <= 0)
+    if (needed <= 0) {
         return;  // Rounding resulted in no new frames this block.
+    }
 
     if (segment.has_value()) {
         const double end_sec = segment->offset_seconds + duration_sec;
@@ -188,19 +206,22 @@ void FfmpegVideoOutput::onBlock(const std::optional<VideoSegment>& segment, doub
         if (!frames.empty()) {
             // Emit decoded frames. If we got fewer than needed, repeat the last
             // one to fill. If more, drop the excess.
-            for (int64_t i = 0; i < needed; ++i) {
-                const std::size_t fi = std::min(static_cast<std::size_t>(i), frames.size() - 1);
+            for (int64_t fi_idx = 0; fi_idx < needed; ++fi_idx) {
+                const std::size_t fi =
+                    std::min(static_cast<std::size_t>(fi_idx), frames.size() - 1);
                 pimpl_->encodeFrame(frames[fi]);
             }
         } else {
             // Decoder produced no frames (pre-roll miss): fill with black.
-            for (int64_t i = 0; i < needed; ++i)
+            for (int64_t fi_idx = 0; fi_idx < needed; ++fi_idx) {
                 pimpl_->encodeFrame(pimpl_->black_frame);
+            }
         }
     } else {
         // Audio-only source block: fill with black frames.
-        for (int64_t i = 0; i < needed; ++i)
+        for (int64_t fi_idx = 0; fi_idx < needed; ++fi_idx) {
             pimpl_->encodeFrame(pimpl_->black_frame);
+        }
     }
 
     pimpl_->total_frame_acc = target_frames;
@@ -209,8 +230,9 @@ void FfmpegVideoOutput::onBlock(const std::optional<VideoSegment>& segment, doub
 // ── close ─────────────────────────────────────────────────────────────
 
 void FfmpegVideoOutput::close() {
-    if (!pimpl_->opened || pimpl_->closed)
+    if (!pimpl_->opened || pimpl_->closed) {
         return;
+    }
     pimpl_->closed = true;
 
     std::error_code ec;

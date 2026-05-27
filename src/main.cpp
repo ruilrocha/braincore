@@ -31,7 +31,6 @@
 #include "domain/Command.h"
 #include "domain/SearchParams.h"
 #include "domain/Sound.h"
-#include "domain/SynapseGraph.h"
 
 // Use-case layer
 #include "usecase/SoundProcessor.h"
@@ -74,7 +73,22 @@ static void printUsage(const char* prog) {
         prog, prog, prog, prog, prog, prog, prog);
 }
 
-// ── Signal handler for graceful Ctrl+C shutdown ────────────────────────
+// ── Progress bar (batch mode) ──────────────────────────────────────────
+static void printProgress(const std::size_t done, const std::size_t total) {
+    constexpr int kBarWidth = 40;
+    const double frac = (total > 0) ? static_cast<double>(done) / static_cast<double>(total) : 0.0;
+    const int filled = static_cast<int>(frac * kBarWidth);
+    std::cout << "\r[";
+    for (int i = 0; i < kBarWidth; ++i) {
+        std::cout << (i < filled ? "█" : "░");
+    }
+    std::cout << std::format("] {:3.0f}%  ({}/{})", frac * 100.0, done, total);
+    std::cout.flush();
+    if (done == total) {
+        std::cout << '\n';
+    }
+}
+
 static std::atomic g_quit{false};
 static audio::usecase::StreamProcessor* g_stream = nullptr;
 static audio::adapter::display::SdlVideoDisplay* g_display = nullptr;
@@ -222,7 +236,7 @@ int main(int argc, char* argv[]) {
     // Shared video source adapter — reused across all modes.
     auto video_source = std::make_shared<audio::adapter::video::FfmpegVideoSource>(4, 44100);
 
-    std::string current_search_name = "synaptic";
+    std::string current_search_name = "vptree";
     // search and synapse_graph are built after brain is loaded (see below)
 
     // ── Block configuration ────────────────────────────────────────────
@@ -238,7 +252,7 @@ int main(int argc, char* argv[]) {
     params.overlap = 0;
     params.usage_falloff = 0.0;
     params.usage_weight = 0.0;
-    params.blend_ratio = 1.0;
+    params.mfcc_weight = 1.0;  // Default: pure MFCC matching.
     params.n_ratio = 1.0;
     params.spectral_start = 0;
     params.spectral_end = 100;
@@ -297,14 +311,15 @@ int main(int argc, char* argv[]) {
         return brain;
     };
 
-    // Always build the synapse graph; graph-aware strategies receive it at construction.
-    auto buildSearch = [&](const std::shared_ptr<const audio::Brain>& b)
+    // Build the nearest-neighbour index and create the search strategy.
+    // All strategies receive the Brain directly at search time — no index
+    // pointer injection needed.
+    auto buildSearch = [&](const std::shared_ptr<audio::Brain>& b)
         -> std::shared_ptr<audio::port::ISearchStrategy> {
         std::cout << std::format("Building synapses ({})...\n", num_synapses);
-        auto graph = std::make_shared<const audio::SynapseGraph>(
-            audio::buildSynapseGraph(*b, static_cast<std::size_t>(num_synapses)));
+        b->buildIndex(static_cast<std::size_t>(num_synapses));
         std::cout << "Synapses built successfully.\n";
-        return makeSearch(current_search_name, std::move(graph));
+        return makeSearch(current_search_name);
     };
 
     auto brain = loadBrain();
@@ -706,7 +721,8 @@ int main(int argc, char* argv[]) {
 
     audio::usecase::SoundProcessor processor(search, params, target_config, spectral_morph,
                                              video_out);
-    audio::Sound result = processor.process(*brain, *target);
+    std::cout << "Processing...\n";
+    audio::Sound result = processor.process(brain, *target, printProgress);
     if (video_out) {
         video_out->close();
     }

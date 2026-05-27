@@ -24,8 +24,6 @@ public:
         audio::AudioPrint p;
         p.mfcc = {1.0, 0.0};
         p.spectral = {0.5};
-        p.normalised_mfcc = {1.0, 0.0};
-        p.normalised_spectral = {0.5};
         p.dominant_freq = 440.0;
         return p;
     }

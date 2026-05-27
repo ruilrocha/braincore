@@ -7,7 +7,6 @@ set(CMAKE_CXX_STANDARD 23)
 find_package(pocketfft REQUIRED)
 find_package(dr_libs REQUIRED)
 find_package(miniaudio REQUIRED)
-find_package(readerwriterqueue REQUIRED)
 find_package(ixwebsocket REQUIRED)
 find_package(avcpp REQUIRED)
 find_package(SDL3 REQUIRED)
@@ -20,11 +19,16 @@ file(GLOB_RECURSE AQUILA_SOURCES "src/aquila/*.cpp")
 
 add_library(brainio-core STATIC
     src/domain/Brain.cpp
+    src/domain/PlayHead.cpp
     src/domain/Sound.cpp
-    src/domain/SynapseGraph.cpp
+    src/usecase/AudioPipeline.cpp
     src/usecase/SoundProcessor.cpp
     src/usecase/StreamProcessor.cpp
     src/usecase/EffectHelpers.cpp
+    src/usecase/stages/AnalysisStage.cpp
+    src/usecase/stages/SearchStage.cpp
+    src/usecase/stages/SynthesisStage.cpp
+    src/usecase/stages/OutputStage.cpp
     ${AQUILA_SOURCES}
 )
 
@@ -54,7 +58,7 @@ target_include_directories(brainio-io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 add_library(brainio-playback STATIC src/adapter/playback/MiniaudioOutput.cpp)
 target_include_directories(brainio-playback PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(brainio-playback PUBLIC
-    brainio-core miniaudio::miniaudio readerwriterqueue::readerwriterqueue)
+    brainio-core miniaudio::miniaudio)
 
 # ═══════════════════════════════════════════════════════════════════════
 # brainio-ui  (WebSocket control — ixwebsocket)
@@ -81,8 +85,7 @@ add_library(brainio-display STATIC
 target_include_directories(brainio-display PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(brainio-display PUBLIC
     brainio-core
-    SDL3::SDL3
-    readerwriterqueue::readerwriterqueue)
+    SDL3::SDL3)
 
 # ═══════════════════════════════════════════════════════════════════════
 # brainio  (CLI executable)
@@ -93,6 +96,7 @@ add_executable(brainio
     src/adapter/search/ClosestSearch.cpp
     src/adapter/search/SynapticSearch.cpp
     src/adapter/search/MarkovChainSearch.cpp
+    src/adapter/search/VpTreeSearch.cpp
     src/adapter/search/MomentumSearch.cpp
     src/adapter/effects/FftwSpectralMorph.cpp
 )

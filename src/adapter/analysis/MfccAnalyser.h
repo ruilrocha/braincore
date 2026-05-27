@@ -15,7 +15,8 @@ namespace audio::adapter::analysis {
  *
  * The primary AudioPrint is MFCC coefficients (timbral envelope).
  * The secondary AudioPrint is FFT magnitude bins (spectral detail).
- * These two can be blended via SearchParams::blend_ratio.
+ * Chroma (pitch-class) and F0 are also computed — see AudioPrint.
+ * Matching weights are controlled via SearchParams (mfcc_weight, spectral_weight, etc.).
  */
 class MfccAnalyser final : public port::IAnalyser {
 public:

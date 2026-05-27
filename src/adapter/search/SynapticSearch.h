@@ -1,31 +1,32 @@
 #pragma once
 
-#include "SynapseAwareSearch.h"
+#include "../../domain/Brain.h"
+#include "../../domain/port/ISearchStrategy.h"
 
 #include <cstddef>
-#include <memory>
 
 namespace audio::adapter::search {
 
 /**
  * Graph-based "synaptic" search.
  *
- * Applies closest-match scoring restricted to the pre-computed nearest-neighbours
- * of the *current* block, producing output that evolves smoothly through the
- * brain's timbral space.
+ * Restricts candidate selection to the precomputed nearest-neighbours of the
+ * current block, producing output that evolves smoothly through the brain's
+ * timbral space.
  *
- * The SynapseGraph is injected at construction time and must be non-null —
- * construction throws `std::invalid_argument` otherwise.
+ * Requires `brain.index()` to be non-null (i.e. `brain->buildIndex()` must
+ * have been called before playback).  Throws `std::runtime_error` if the
+ * index is absent.
  *
- * @p num_synapses controls how many neighbours are evaluated per call.
+ * @p num_synapses controls how many precomputed neighbours are evaluated per
+ * call (capped at the actual number stored in the index).
  */
-class SynapticSearch final : public SynapseAwareSearch {
+class SynapticSearch final : public port::ISearchStrategy {
 public:
-    explicit SynapticSearch(std::size_t num_synapses, std::shared_ptr<const SynapseGraph> graph);
+    explicit SynapticSearch(std::size_t num_synapses = 100);
 
     [[nodiscard]] std::size_t search(const std::vector<double>& target_fp,
-                                     const std::vector<Block>& blocks,
-                                     const port::IAnalyser& analyser, const SearchParams& params,
+                                     const audio::Brain& brain, const SearchParams& params,
                                      std::size_t current_block_index,
                                      std::vector<double>& block_usages) const override;
 

@@ -15,7 +15,7 @@ namespace audio::adapter::display {
 
 VideoDisplayOutput::VideoDisplayOutput(std::shared_ptr<port::IVideoSource> source,
                                        std::shared_ptr<port::IVideoDisplay> display)
-    : source_(std::move(source)), display_(std::move(display)), block_queue_(256) {
+    : source_(std::move(source)), display_(std::move(display)) {
     decoder_thread_ = std::thread([this] {
     // Video decoding is background work — give it lower OS priority so the
     // audio production thread (StreamProcessor) is never preempted by it.
@@ -43,7 +43,8 @@ void VideoDisplayOutput::onBlock(const std::optional<VideoSegment>& segment, dou
     if (!running_) {
         return;
     }
-    block_queue_.try_enqueue(BlockCmd{
+    std::scoped_lock q_lock(block_queue_mutex_);
+    block_queue_.push(BlockCmd{
         .segment = segment,
         .duration_sec = duration_sec,
         .block_audio_start_sec = block_audio_start_sec,
@@ -96,7 +97,16 @@ void VideoDisplayOutput::renderFrameForTime(const double audio_time_sec) {
 void VideoDisplayOutput::decoderLoop() {
     while (running_) {
         BlockCmd cmd;
-        if (!block_queue_.try_dequeue(cmd)) {
+        bool got_cmd = false;
+        {
+            std::scoped_lock q_lock(block_queue_mutex_);
+            if (!block_queue_.empty()) {
+                cmd = std::move(block_queue_.front());
+                block_queue_.pop();
+                got_cmd = true;
+            }
+        }
+        if (!got_cmd) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }

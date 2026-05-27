@@ -1,9 +1,9 @@
 #pragma once
 
-#include "SynapseAwareSearch.h"
+#include "../../domain/Brain.h"
+#include "../../domain/port/ISearchStrategy.h"
 
 #include <cstddef>
-#include <memory>
 
 namespace audio::adapter::search {
 
@@ -12,21 +12,21 @@ namespace audio::adapter::search {
  * similarity, then performs a probabilistic walk through the brain's
  * timbral space.
  *
- * The SynapseGraph is injected at construction time and must be non-null —
- * construction throws `std::invalid_argument` otherwise.
+ * Uses the precomputed nearest-neighbour graph (`brain.index()`) to restrict
+ * the candidate set to the current block's neighbours.  Requires
+ * `brain->buildIndex()` to have been called before playback.  Throws
+ * `std::runtime_error` if the index is absent.
  *
  * The `temperature` parameter controls the entropy of the walk:
  *   - Low  (0.1): nearly deterministic, follows closest synapses.
  *   - High (5.0): more adventurous, explores distant timbral regions.
  */
-class MarkovChainSearch final : public SynapseAwareSearch {
+class MarkovChainSearch final : public port::ISearchStrategy {
 public:
-    explicit MarkovChainSearch(double temperature, std::size_t num_synapses,
-                               std::shared_ptr<const SynapseGraph> graph);
+    explicit MarkovChainSearch(double temperature = 1.0, std::size_t num_synapses = 100);
 
     [[nodiscard]] std::size_t search(const std::vector<double>& target_fp,
-                                     const std::vector<Block>& blocks,
-                                     const port::IAnalyser& analyser, const SearchParams& params,
+                                     const audio::Brain& brain, const SearchParams& params,
                                      std::size_t current_block_index,
                                      std::vector<double>& block_usages) const override;
 
