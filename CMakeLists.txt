@@ -68,6 +68,31 @@ include(GoogleTest)
 gtest_discover_tests(braincore-tests)
 
 # ═══════════════════════════════════════════════════════════════════════
+# AddressSanitizer  (opt-in: cmake … -DENABLE_ASAN=ON)
+# ═══════════════════════════════════════════════════════════════════════
+option(ENABLE_ASAN "Build with AddressSanitizer (-fsanitize=address)" OFF)
+
+if(ENABLE_ASAN)
+    message(STATUS "AddressSanitizer enabled")
+    set(_asan_flags -fsanitize=address -fno-omit-frame-pointer)
+    target_compile_options(braincore-lib  PUBLIC  ${_asan_flags})
+    target_link_options   (braincore-lib  PUBLIC  -fsanitize=address)
+    target_compile_options(braincore-tests PRIVATE ${_asan_flags})
+    target_link_options   (braincore-tests PRIVATE -fsanitize=address)
+endif()
+
+option(ENABLE_MSAN "Build with MemorySanitizer (-fsanitize=memory)" OFF)
+
+if(ENABLE_MSAN)
+    message(STATUS "MemorySanitizer enabled")
+    set(_msan_flags -fsanitize=memory -fno-omit-frame-pointer -fsanitize-memory-track-origins)
+    target_compile_options(braincore-lib  PUBLIC  ${_msan_flags})
+    target_link_options   (braincore-lib  PUBLIC  -fsanitize=memory)
+    target_compile_options(braincore-tests PRIVATE ${_msan_flags})
+    target_link_options   (braincore-tests PRIVATE -fsanitize=memory)
+endif()
+
+# ═══════════════════════════════════════════════════════════════════════
 # format  (auto-format all project sources with clang-format)
 # Usage: cmake --build --preset conan-debug --target format
 # ═══════════════════════════════════════════════════════════════════════

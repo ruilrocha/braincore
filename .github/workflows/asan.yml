@@ -1,0 +1,49 @@
+name: ASan
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # AddressSanitizer — builds in Debug with -fsanitize=address and runs
+  # the full test suite. Any invalid memory access or leak aborts the
+  # run and fails the job.
+  # ──────────────────────────────────────────────────────────────────────
+  asan:
+    name: AddressSanitizer
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y ninja-build
+
+      - name: Install Conan
+        run: pip3 install conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Cache Conan packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.conan2
+          key: ${{ runner.os }}-conan-Debug-${{ hashFiles('conandata.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-conan-Debug-
+
+      - name: Conan install
+        run: conan install . --output-folder=cmake-build-debug/conan --build=missing -s build_type=Debug
+
+      - name: Configure (ASan)
+        run: cmake --preset conan-debug -DENABLE_ASAN=ON
+
+      - name: Build
+        run: cmake --build --preset conan-debug
+
+      - name: Test
+        run: ctest --test-dir cmake-build-debug/conan/build/Debug --output-on-failure
+        env:
+          ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
