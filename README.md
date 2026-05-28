@@ -19,16 +19,30 @@ Inspired by [Samplebrain](https://thentrythis.org/projects/samplebrain).
 Requires: **C++23 compiler**, **Conan 2.x**, **CMake 3.24+**, **Ninja**.
 
 ```bash
-# Install dependencies
-conan install . --output-folder=cmake-build-debug/conan --build=missing
+# Install dependencies + generate presets
+conan install . --output-folder=cmake-build-debug/conan --build=missing -s build_type=Debug
+conan install . --output-folder=build --build=missing -s build_type=Release
 
-# Build
+# Build Debug
 cmake --preset conan-debug
 cmake --build --preset conan-debug
+
+# Build Release
+cmake --preset conan-release
+cmake --build --preset conan-release
 
 # Run tests
 ./cmake-build-debug/conan/build/Debug/brainio-tests
 ```
+
+Conan generates `CMakeUserPresets.json` at the repo root; after running both
+install commands above, both `conan-debug` and `conan-release` are available.
+
+### CLion setup
+
+- Enable **Use CMake Presets**.
+- Select `conan-debug` for development or `conan-release` for optimized builds.
+- Leave **CMake options** empty for preset profiles.
 
 ---
 

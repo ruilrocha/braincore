@@ -1,0 +1,28 @@
+name: Format Check
+
+on:
+  workflow_call:
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # Format check — fails if any file in src/ or tests/ is not formatted
+  # according to .clang-format.
+  # ──────────────────────────────────────────────────────────────────────
+  format-check:
+    name: clang-format check
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: pip3 install clang-format==22.1.5
+
+      - name: Check formatting
+        run: |
+          FILES=$(find src tests -type f \( -name '*.cpp' -o -name '*.h' \) | sort)
+          echo "Checking $(echo "$FILES" | wc -l) files with clang-format $(clang-format --version)..."
+          # shellcheck disable=SC2086
+          clang-format --dry-run --Werror $FILES
+          echo "All files are correctly formatted."
