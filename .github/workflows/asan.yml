@@ -8,31 +8,38 @@ jobs:
   # AddressSanitizer — builds in Debug with -fsanitize=address and runs
   # the full test suite. Any invalid memory access or leak aborts the
   # run and fails the job.
+  #
+  # We use Clang for consistency with the MSan workflow and for better
+  # ASan symbolisation and error deduplication output.
   # ──────────────────────────────────────────────────────────────────────
   asan:
     name: AddressSanitizer
     runs-on: ubuntu-24.04
+
+    env:
+      CC: clang
+      CXX: clang++
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
       - name: Install system dependencies
-        run: sudo apt-get install -y ninja-build
+        run: sudo apt-get install -y ninja-build clang
 
       - name: Install Conan
         run: pip3 install conan
 
-      - name: Detect Conan profile
+      - name: Detect Conan profile (Clang)
         run: conan profile detect --force
 
       - name: Cache Conan packages
         uses: actions/cache@v5
         with:
           path: ~/.conan2
-          key: ${{ runner.os }}-conan-Debug-${{ hashFiles('conandata.yml') }}
+          key: ${{ runner.os }}-conan-clang-Debug-${{ hashFiles('conandata.yml') }}
           restore-keys: |
-            ${{ runner.os }}-conan-Debug-
+            ${{ runner.os }}-conan-clang-Debug-
 
       - name: Conan install
         run: conan install . --output-folder=cmake-build-debug/conan --build=missing -s build_type=Debug

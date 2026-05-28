@@ -148,3 +148,67 @@ TEST(ClosestSearch, SingleBlockAlwaysSelected) {
     const std::size_t idx = runSearch(search, *brain, target, params, block_usages);
     EXPECT_EQ(idx, 0U);
 }
+
+TEST(ClosestSearch, StickynessPrefersContinuation) {
+    // Block 0: closest to target, Block 1: farther.
+    // With stickyness=1.0 and current_idx=0, the next block (1) is always preferred
+    // as long as closest_score > 0 (which it is here: target != block 0).
+    const std::vector blocks = {
+        makeBlock({0.0}),
+        makeBlock({5.0}),
+    };
+    auto brain = makeBrain(blocks);
+    audio::adapter::search::ClosestSearch search;
+    audio::SearchParams params;
+    params.stickyness = 1.0;
+    params.usage_weight = 0.0;
+
+    std::vector<double> block_usages(blocks.size(), 0.0);
+    audio::BlockAnalysis target;
+    target.print.mfcc = {0.1};  // closest to block 0
+    target.normalised_print.mfcc = {0.1};
+    // current_idx=0 → next block is 1; with stickyness=1 next always wins
+    const std::size_t idx = runSearch(search, *brain, target, params, block_usages, /*current=*/0);
+    EXPECT_EQ(idx, 1U);
+}
+
+TEST(ClosestSearch, NRatioUsesNormalisedPrint) {
+    // Block 0: raw mfcc={0.0}, normalised mfcc={1.0}  (raw matches target raw, norm doesn't)
+    // Block 1: raw mfcc={10.0}, normalised mfcc={0.0} (raw doesn't match, but norm matches)
+    // Target:  raw mfcc={0.0}, normalised mfcc={0.0}
+    //
+    // n_ratio=0 → pure raw comparison → block 0 wins (raw distance = 0)
+    // n_ratio=1 → pure normalised comparison → block 1 wins (norm distance = 0)
+    auto makeCustomBlock = [](std::vector<double> raw, std::vector<double> norm) {
+        audio::Block b;
+        b.analysis.print.mfcc = raw;
+        b.analysis.normalised_print.mfcc = norm;
+        b.analysis.print.spectral = raw;
+        b.analysis.normalised_print.spectral = norm;
+        return b;
+    };
+
+    const std::vector blocks = {
+        makeCustomBlock({0.0}, {1.0}),   // block 0
+        makeCustomBlock({10.0}, {0.0}),  // block 1
+    };
+    auto brain = makeBrain(blocks);
+    audio::adapter::search::ClosestSearch search;
+    audio::SearchParams params;
+    params.stickyness = 0.0;
+    params.usage_weight = 0.0;
+
+    audio::BlockAnalysis target;
+    target.print.mfcc = {0.0};
+    target.normalised_print.mfcc = {0.0};
+
+    // n_ratio=0: raw comparison, block 0 wins
+    params.n_ratio = 0.0;
+    std::vector<double> usages(2, 0.0);
+    EXPECT_EQ(runSearch(search, *brain, target, params, usages), 0U);
+
+    // n_ratio=1: normalised comparison, block 1 wins
+    params.n_ratio = 1.0;
+    std::fill(usages.begin(), usages.end(), 0.0);
+    EXPECT_EQ(runSearch(search, *brain, target, params, usages), 1U);
+}

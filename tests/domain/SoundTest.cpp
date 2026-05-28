@@ -51,3 +51,46 @@ TEST(Sound, CopyConstructionIsIndependent) {
     EXPECT_EQ(a.getNumSamples(), b.getNumSamples());
     EXPECT_EQ(a.getSampleRate(), b.getSampleRate());
 }
+
+TEST(Sound, GetChannelsReturnsAllChannels) {
+    std::vector<audio::Channel> channels = {{1.0, 2.0}, {3.0, 4.0}, {5.0, 6.0}};
+    Sound s(channels, 44100);
+    ASSERT_EQ(s.getChannels().size(), 3u);
+    EXPECT_EQ(s.getChannels()[2][1], 6.0);
+}
+
+TEST(Sound, GetNumChannelsMatchesInput) {
+    Sound mono({audio::Channel(8, 0.0)}, 44100);
+    Sound stereo({audio::Channel(8, 0.0), audio::Channel(8, 0.0)}, 44100);
+    EXPECT_EQ(mono.getNumChannels(), 1);
+    EXPECT_EQ(stereo.getNumChannels(), 2);
+}
+
+TEST(Sound, GetSampleRateReturnsConstructedValue) {
+    Sound s({audio::Channel(4, 0.0)}, 22050);
+    EXPECT_EQ(s.getSampleRate(), 22050);
+}
+
+TEST(Sound, GetNumSamplesReflectsFirstChannelLength) {
+    // getNumSamples() reports the length of channel 0.
+    Sound s({audio::Channel(16, 0.0), audio::Channel(16, 0.0)}, 44100);
+    EXPECT_EQ(s.getNumSamples(), 16);
+}
+
+TEST(Sound, ZeroChannelsSoundHasZeroNumSamples) {
+    Sound s({}, 44100);
+    EXPECT_EQ(s.getNumSamples(), 0);
+    EXPECT_EQ(s.getNumChannels(), 0);
+}
+
+TEST(Sound, GetChannelIndexZeroOnNegativeThrows) {
+    Sound s({audio::Channel(4, 0.0)}, 44100);
+    EXPECT_THROW((void)s.getChannel(-1), std::out_of_range);
+}
+
+TEST(Sound, GetChannelSamplesAreCorrect) {
+    std::vector<audio::Channel> channels = {{10.0, 20.0, 30.0}};
+    Sound s(channels, 48000);
+    EXPECT_DOUBLE_EQ(s.getChannel(0)[0], 10.0);
+    EXPECT_DOUBLE_EQ(s.getChannel(0)[2], 30.0);
+}

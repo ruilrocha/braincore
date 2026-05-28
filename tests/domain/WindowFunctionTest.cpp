@@ -105,3 +105,63 @@ TEST(WindowFunction, NormaliseRemovesDC) {
         EXPECT_EQ(s, 0.0);
     }
 }
+
+// ─── FlatTop window ────────────────────────────────────────────────────────────
+
+TEST(WindowFunction, FlatTopEdgesNearZero) {
+    std::vector samples(64, 1.0);
+    WindowFunction::apply(samples, WindowShape::FlatTop);
+    EXPECT_NEAR(samples.front(), 0.0, 0.01);
+    EXPECT_NEAR(samples.back(), 0.0, 0.01);
+}
+
+TEST(WindowFunction, FlatTopMidpointHighAmplitude) {
+    // FlatTop coefficients sum to a high peak at the midpoint (~4.64).
+    std::vector<double> coeffs = WindowFunction::makeCoefficients(65, WindowShape::FlatTop);
+    EXPECT_GT(coeffs[32], 4.0);
+}
+
+// ─── makeCoefficients() / applyCoefficients() ─────────────────────────────────
+
+TEST(WindowFunction, MakeCoefficientsRectangleReturnsAllOnes) {
+    const auto coeffs = WindowFunction::makeCoefficients(8, WindowShape::Rectangle);
+    ASSERT_EQ(coeffs.size(), 8u);
+    for (const double c : coeffs) {
+        EXPECT_DOUBLE_EQ(c, 1.0);
+    }
+}
+
+TEST(WindowFunction, MakeCoefficientsSizeMatchesRequest) {
+    for (const auto shape : {WindowShape::Hann, WindowShape::Hamming, WindowShape::Blackman,
+                             WindowShape::Bartlett, WindowShape::FlatTop, WindowShape::Gaussian}) {
+        const auto c = WindowFunction::makeCoefficients(32, shape);
+        EXPECT_EQ(c.size(), 32u) << "Shape " << static_cast<int>(shape);
+    }
+}
+
+TEST(WindowFunction, ApplyCoefficientsEquivalentToApply) {
+    // Precomputed + applyCoefficients must give the same result as the all-in-one apply().
+    std::vector<double> via_apply(64, 1.0);
+    std::vector<double> via_coeffs(64, 1.0);
+
+    WindowFunction::apply(via_apply, WindowShape::Hann);
+
+    const auto coeffs = WindowFunction::makeCoefficients(64, WindowShape::Hann);
+    WindowFunction::applyCoefficients(via_coeffs, coeffs);
+
+    ASSERT_EQ(via_apply.size(), via_coeffs.size());
+    for (std::size_t i = 0; i < via_apply.size(); ++i) {
+        EXPECT_NEAR(via_apply[i], via_coeffs[i], 1e-12) << "Mismatch at i=" << i;
+    }
+}
+
+TEST(WindowFunction, ApplyCoefficientsUsesMinLength) {
+    // Coefficients vector shorter than samples: only the shorter prefix is applied.
+    std::vector<double> samples = {1.0, 1.0, 1.0, 1.0};
+    const std::vector<double> coeffs = {0.0, 0.5};  // length 2
+    WindowFunction::applyCoefficients(samples, coeffs);
+    EXPECT_NEAR(samples[0], 0.0, 1e-12);
+    EXPECT_NEAR(samples[1], 0.5, 1e-12);
+    EXPECT_DOUBLE_EQ(samples[2], 1.0);  // untouched
+    EXPECT_DOUBLE_EQ(samples[3], 1.0);  // untouched
+}
