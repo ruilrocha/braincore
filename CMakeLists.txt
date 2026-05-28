@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5...4.0)
-project(brainio)
+project(braincore)
 
 set(CMAKE_CXX_STANDARD 23)
 
@@ -8,7 +8,7 @@ find_package(pocketfft REQUIRED)
 find_package(GTest REQUIRED)
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-core  (lean static library — domain + adapters, no app layer)
+# braincore-lib  (lean static library — domain + adapters, no app layer)
 #
 #   Domain:   Brain, PlayHead, Sound, WindowFunction, AudioPrint, ...
 #   Aquila:   MelFilterBank (in-tree DSP)
@@ -17,7 +17,7 @@ find_package(GTest REQUIRED)
 # ═══════════════════════════════════════════════════════════════════════
 file(GLOB_RECURSE AQUILA_SOURCES "src/aquila/*.cpp")
 
-add_library(brainio-core STATIC
+add_library(braincore-lib STATIC
     src/BrainSession.cpp
     src/domain/Brain.cpp
     src/domain/NearestNeighbourIndex.cpp
@@ -36,36 +36,36 @@ add_library(brainio-core STATIC
     ${AQUILA_SOURCES}
 )
 
-target_include_directories(brainio-core PUBLIC
+target_include_directories(braincore-lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(brainio-core PUBLIC pocketfft::pocketfft)
+target_link_libraries(braincore-lib PUBLIC pocketfft::pocketfft)
 
 # Platform-specific libs.
 if(UNIX AND NOT APPLE)
     find_package(Threads REQUIRED)
-    target_link_libraries(brainio-core PUBLIC Threads::Threads dl m)
+    target_link_libraries(braincore-lib PUBLIC Threads::Threads dl m)
 endif()
 
 if(APPLE)
-    target_link_options(brainio-core PRIVATE "-Wl,-no_warn_duplicate_libraries")
+    target_link_options(braincore-lib PRIVATE "-Wl,-no_warn_duplicate_libraries")
 endif()
 
 # ═══════════════════════════════════════════════════════════════════════
-# brainio-tests  (Google Test unit tests)
+# braincore-tests  (Google Test unit tests)
 # ═══════════════════════════════════════════════════════════════════════
 enable_testing()
 
 file(GLOB_RECURSE TEST_SOURCES "tests/**/*.cpp")
-add_executable(brainio-tests ${TEST_SOURCES})
-target_include_directories(brainio-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(brainio-tests PRIVATE
-    brainio-core
+add_executable(braincore-tests ${TEST_SOURCES})
+target_include_directories(braincore-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(braincore-tests PRIVATE
+    braincore-lib
     GTest::gtest_main
 )
 include(GoogleTest)
-gtest_discover_tests(brainio-tests)
+gtest_discover_tests(braincore-tests)
 
 # ═══════════════════════════════════════════════════════════════════════
 # format  (auto-format all project sources with clang-format)

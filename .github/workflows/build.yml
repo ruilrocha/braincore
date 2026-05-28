@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install system dependencies
         run: sudo apt-get install -y ninja-build
@@ -29,7 +29,7 @@ jobs:
         run: conan profile detect --force
 
       - name: Cache Conan packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.conan2
           key: ${{ runner.os }}-conan-${{ env.BUILD_TYPE }}-${{ hashFiles('conandata.yml') }}
