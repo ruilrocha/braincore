@@ -10,12 +10,12 @@
 
 namespace audio {
 
-Brain::Brain(std::shared_ptr<port::IAnalyser> analyser, const BlockConfig config)
+Brain::Brain(std::shared_ptr<port::IAnalyser> analyser, const BlockConfig& config)
     : analyser_(std::move(analyser)), config_(config) {}
 
 std::shared_ptr<Brain> Brain::rebuild(const std::vector<Block>& blocks,
                                       std::shared_ptr<port::IAnalyser> analyser,
-                                      const BlockConfig config) {
+                                      const BlockConfig& config) {
     auto brain = std::make_shared<Brain>(std::move(analyser), config);
     brain->blocks_ = blocks;
     brain->block_active_.assign(blocks.size(), true);  // all active; no source tracking
@@ -87,8 +87,12 @@ void Brain::addSound(const Sound& sound, const std::string& name,
         static_cast<double>(config_.block_size) / static_cast<double>(sample_rate);
     const double step_sec = static_cast<double>(step) / static_cast<double>(sample_rate);
 
-    // Precompute window coefficients once for all blocks in this sound.
-    const auto window_coefficients = WindowFunction::makeCoefficients(block_size, config_.window);
+    // Precompute Hann window coefficients once for all blocks in this sound.
+    // Hann is hardcoded for analysis: it gives the best frequency resolution for
+    // MFCC fingerprinting (low sidelobes, minimal spectral leakage).
+    // The user-selected window shape is used separately for OLA synthesis output.
+    const auto window_coefficients =
+        WindowFunction::makeCoefficients(block_size, WindowShape::Hann);
 
     std::size_t block_index = 0;
     for (std::size_t i = 0; i < ch0.size(); i += step, ++block_index) {

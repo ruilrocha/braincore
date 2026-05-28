@@ -46,17 +46,17 @@ struct WindowFunction {
                     break;
                 case WindowShape::Blackman:
                     win = 0.42 - (0.5 * std::cos(pi2 * nd / (num_samples - 1.0))) +
-                        (0.08 * std::cos(4.0 * std::numbers::pi * nd / (num_samples - 1.0)));
+                          (0.08 * std::cos(4.0 * std::numbers::pi * nd / (num_samples - 1.0)));
                     break;
                 case WindowShape::Bartlett:
-                    win = 1.0 -
-                        ((2.0 * std::fabs(nd - ((num_samples - 1.0) / 2.0))) / (num_samples - 1.0));
+                    win = 1.0 - ((2.0 * std::fabs(nd - ((num_samples - 1.0) / 2.0))) /
+                                 (num_samples - 1.0));
                     break;
                 case WindowShape::FlatTop:
                     win = 1.0 - (1.93 * std::cos(pi2 * nd / (num_samples - 1.0))) +
-                        (1.29 * std::cos(4.0 * std::numbers::pi * nd / (num_samples - 1.0))) -
-                        (0.388 * std::cos(6.0 * std::numbers::pi * nd / (num_samples - 1.0))) +
-                        (0.0322 * std::cos(8.0 * std::numbers::pi * nd / (num_samples - 1.0)));
+                          (1.29 * std::cos(4.0 * std::numbers::pi * nd / (num_samples - 1.0))) -
+                          (0.388 * std::cos(6.0 * std::numbers::pi * nd / (num_samples - 1.0))) +
+                          (0.0322 * std::cos(8.0 * std::numbers::pi * nd / (num_samples - 1.0)));
                     break;
                 case WindowShape::Gaussian: {
                     constexpr double sigma = 0.5;
@@ -79,7 +79,8 @@ struct WindowFunction {
      * @p coefficients must be the same size as @p samples. If sizes differ, the
      * shorter length is used (safe but likely a programming error).
      */
-    static void applyCoefficients(std::vector<double>& samples, const std::vector<double>& coefficients) {
+    static void applyCoefficients(std::vector<double>& samples,
+                                  const std::vector<double>& coefficients) {
         const std::size_t n_coefficients = std::min(samples.size(), coefficients.size());
         for (std::size_t i = 0; i < n_coefficients; ++i) {
             samples[i] *= coefficients[i];

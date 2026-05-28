@@ -1,41 +1,37 @@
 # Search Strategies
 
-brain-io includes four search strategies that determine how target blocks are matched to
-brain blocks. All implement `ISearchStrategy::search()` and can be swapped at runtime
-via `Brain::setSearchStrategy()`.
+All strategies implement `ISearchStrategy` and can be swapped at runtime without stopping playback.
+Strategies that require a synapse graph (Synaptic, Markov) build it lazily on first use.
+
+---
+
+## VpTreeSearch *(default)*
+
+**Approximate nearest neighbour via a vantage-point tree.**
+
+Builds a VP-tree at `buildIndex()` time and answers queries in O(log n). Produces the same
+result as `ClosestSearch` in virtually all cases but is dramatically faster for large brains.
+
+Used by default in the Swift iOS app ("Closest (optimised)").
 
 ---
 
 ## ClosestSearch
 
-**The default. Brute-force minimum-distance matching.**
+**Brute-force O(n) scan.** Evaluates every block in the brain. Useful for debugging or
+very small brains where tree overhead dominates.
 
-For each target block, scans ALL blocks in the brain and returns the one with the
-lowest blended distance score.
+---
 
-### How it works
-
-1. Compute `fullScore()` for every block in the brain:
-   - Blend MFCC and spectral distances (via `blend_ratio`)
-   - Blend raw and normalised distances (via `n_ratio`)
-   - Add usage penalty (via `usage_weight`)
-2. Apply stickyness bias (optional sequential block preference)
-3. Return the block with the lowest total score
-
-### When to use
-
-- **Target-driven modes** (batch, stream) — produces the most faithful reconstruction
-- When you want the output to closely resemble the target's timbral structure
-- When the brain is small enough that brute-force scanning is fast
-
-### Key parameters
+Both VpTree and ClosestSearch share the same parameters:
 
 | Parameter | Effect |
 |-----------|--------|
-| `blend_ratio` | 1.0 = match by timbre (MFCC), 0.0 = match by spectrum |
-| `n_ratio` | 0.0 = amplitude-dependent, 1.0 = amplitude-invariant |
-| `stickyness` | Bias toward sequential blocks for coherence |
-| `usage_weight` | Penalise repeated blocks (promote variety) |
+| `mfcc_weight` / `mel_weight` / `spectral_weight` | Relative contribution of each fingerprint to the distance score |
+| `n_ratio` | 0 = amplitude-sensitive matching, 1 = amplitude-invariant |
+| `stickyness` | Bias toward the next sequential source block |
+| `usage_weight` | Penalise frequently-used blocks (novelty) |
+| `usage_falloff` | How fast usage penalty decays (boredom) |
 
 ---
 
@@ -43,70 +39,25 @@ lowest blended distance score.
 
 **Deterministic walk through a pre-computed similarity graph.**
 
-Instead of scanning every block, only evaluates the pre-computed nearest neighbours
-(synapses) of the *current* block. Produces output that evolves smoothly through
-the brain's timbral space.
+Instead of scanning all blocks, evaluates only the pre-computed nearest neighbours (synapses)
+of the current block. Produces output that evolves smoothly through timbral space.
 
-### How it works
+Best for: smooth flowing transitions, large brains where O(n) is too slow.
 
-1. Look at the current block's synapse list (N most similar blocks, pre-computed)
-2. Among those N candidates, pick the one closest to the target fingerprint
-3. Apply usage penalty
-4. Step to the chosen block
-
-### When to use
-
-- When you want **flowing transitions** between similar-sounding blocks
-- In infinite mode for smooth evolution
-- When the brain is large and you want faster search (only evaluates N candidates)
-
-### Key parameters
-
-| Parameter | Effect |
-|-----------|--------|
-| `num_synapses` | How many neighbours to evaluate (fewer = more constrained) |
-| `usage_weight` | Prevent getting stuck in loops |
-
-### Requirements
-
-Requires `Brain::buildSynapses()` — called automatically when this strategy is
-selected at runtime.
+Key params: `num_synapses` (neighbourhood size), `usage_weight`.
 
 ---
 
 ## MarkovChainSearch
 
-**Probabilistic walk over the synapse graph with temperature control.**
+**Probabilistic walk over the synapse graph.**
 
-Like SynapticSearch, but instead of deterministically picking the best synapse,
-it samples probabilistically using softmax-weighted distances. This produces more
-varied output that still flows through similar timbral regions.
+Like Synaptic, but samples probabilistically via softmax over synapse distances. More varied
+output that still flows through similar timbral regions.
 
-### How it works
+Best for: generative/infinite mode with controlled randomness.
 
-1. Look at the current block's synapse list
-2. Compute distances from each synapse to the target fingerprint
-3. Apply softmax with temperature to create a probability distribution
-4. Sample one block from that distribution
-5. Apply usage penalty
-
-### When to use
-
-- When you want **controlled randomness** — more varied than Synaptic but not chaotic
-- For generative/infinite mode with more "surprise"
-- When you want to dial creativity up/down via temperature
-
-### Key parameters
-
-| Parameter | Effect |
-|-----------|--------|
-| `temperature` | Low (0.1) = nearly deterministic, High (5.0) = more random exploration |
-| `num_synapses` | Size of the neighbourhood to sample from |
-| `usage_weight` | Prevent repetitive loops |
-
-### Requirements
-
-Requires `Brain::buildSynapses()` — called automatically when selected.
+Key params: `temperature` (low = nearly deterministic, high = more random), `num_synapses`.
 
 ---
 
@@ -114,41 +65,23 @@ Requires `Brain::buildSynapses()` — called automatically when selected.
 
 **Velocity-based trajectory through fingerprint space.**
 
-Tracks a "velocity vector" in fingerprint space. Instead of jumping to the closest match,
-it drifts smoothly in the direction it was already moving — like a ball rolling through
-the brain's timbral landscape.
+Tracks a velocity vector in fingerprint space. Output drifts smoothly in the direction it
+was already moving — like a ball rolling through the brain's timbral landscape.
 
-### How it works
+Best for: infinite mode; produces the smoothest, most cinematic evolution.
 
-1. Compute the direction vector from the previous match to the current target fingerprint
-2. Blend this with the accumulated velocity (controlled by `momentum`)
-3. Apply velocity decay (controlled by `momentum_decay`)
-4. Find the block closest to (current position + velocity)
-5. Update position and velocity for the next step
-
-### When to use
-
-- **Infinite mode** — produces the smoothest, most cinematic evolution
-- When you want output that sounds like one continuous sound rather than discrete jumps
-- For ambient/textural generation
-
-### Key parameters
-
-| Parameter | Effect |
-|-----------|--------|
-| `momentum` | 0.0 = no inertia (behaves like ClosestSearch), 1.0 = full trajectory following |
-| `momentum_decay` | 1.0 = no decay (constant speed), 0.0 = instant stop |
-| `usage_weight` | Prevent getting stuck in orbits |
+Key params: `momentum` (0 = no inertia, 1 = full trajectory), `momentum_decay`.
 
 ---
 
 ## Comparison
 
-| Strategy | Speed | Variety | Coherence | Best Mode |
-|----------|-------|---------|-----------|-----------|
-| Closest | O(n) | Low | High (target-faithful) | Batch, Stream |
-| Synaptic | O(k) | Medium | High (smooth flow) | Stream, Infinite |
-| Markov | O(k) | High | Medium (probabilistic) | Infinite |
-| Momentum | O(n) | Medium | Very High (trajectory) | Infinite |
+| Strategy | Speed | Best for |
+|----------|-------|----------|
+| VpTree | O(log n) | **Default — all modes** |
+| Closest | O(n) | Debugging, tiny brains |
+| Synaptic | O(k) | Smooth large-brain traversal |
+| Markov | O(k) | Generative mode with variety |
+| Momentum | O(n) | Cinematic infinite mode |
 
-Where `n` = total blocks in brain, `k` = synapse count (typically 100).
+`n` = total blocks, `k` = synapse count (typically 100–1000).

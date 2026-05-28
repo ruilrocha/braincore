@@ -1,6 +1,7 @@
 #include "BrainSession.h"
 
 #include "adapter/analysis/MfccAnalyser.h"
+#include "adapter/effects/OlaBuffer.h"
 #include "adapter/effects/SpectralMorph.h"
 #include "adapter/fft/PocketfftBackend.h"
 #include "adapter/search/ClosestSearch.h"
@@ -31,6 +32,7 @@ struct BrainSession::Impl {
     // Brain config (requires re-prepare when changed)
     int block_size = kDefaultBlockSize;
     WindowShape window_shape = WindowShape::Rectangle;
+    double overlap_ratio = 0.5;  ///< OLA overlap [0.0, 0.9]. 0 = no OLA; 0.5 = 50% (recommended).
     std::size_t num_synapses = kDefaultNumSynapses;
 
     // Search config (cheap — only rebuilds PlayHead)
@@ -50,7 +52,7 @@ struct BrainSession::Impl {
     std::vector<BlockMeta> block_meta;
 
     // Infinite mode drift state
-    BlockAnalysis drift_print;         ///< Evolving "target" fingerprint for path walking.
+    BlockAnalysis drift_print;       ///< Evolving "target" fingerprint for path walking.
     std::size_t drift_last_idx = 0;  ///< Last matched index, for stuck detection.
     int drift_stuck_count = 0;       ///< How many steps the same block was returned.
 
@@ -58,10 +60,17 @@ struct BrainSession::Impl {
     std::unique_ptr<adapter::effects::SpectralMorph> spectral_morph;
     double spectral_morph_amount = 0.0;
     std::optional<std::size_t> prev_matched_idx;  ///< Block index from the previous advance() call.
-    std::optional<std::size_t> last_matched_idx;  ///< Block index from the most recent advance() call.
+    std::optional<std::size_t>
+        last_matched_idx;  ///< Block index from the most recent advance() call.
     /// Feedback cache: last morphed output per channel. Fed back as `prev` on the
     /// next block so the morph acts as a spectral IIR filter (reverb-like smearing).
     std::vector<std::vector<double>> morph_feedback;
+
+    /// OLA synthesis buffer — active when BlockConfig.overlap > 0.
+    /// Created/replaced in resetBrain() with the current window_shape.
+    std::unique_ptr<adapter::effects::OlaBuffer> ola_buffer;
+    /// Scratch buffer reused by getBlockSamplesInterleaved() for OLA reads.
+    std::vector<std::vector<double>> ola_read_scratch;
 
     Impl() = default;  // Brain created lazily in addSamples so config is applied first
 
@@ -69,7 +78,7 @@ struct BrainSession::Impl {
         auto fft = std::make_shared<adapter::fft::PocketfftBackend>();
         auto analyser = std::make_shared<adapter::analysis::MfccAnalyser>(std::move(fft));
         BlockConfig cfg;
-        cfg.overlap = 0.5;
+        cfg.overlap = overlap_ratio;
         cfg.block_size = block_size;
         cfg.window = window_shape;
         brain = std::make_shared<Brain>(std::move(analyser), cfg);
@@ -81,6 +90,11 @@ struct BrainSession::Impl {
         prev_matched_idx.reset();
         last_matched_idx.reset();
         morph_feedback.clear();
+
+        // OLA synthesis buffer — uses the user's selected window shape.
+        ola_buffer = std::make_unique<adapter::effects::OlaBuffer>(
+            static_cast<std::size_t>(block_size), cfg.overlap, window_shape);
+        ola_read_scratch.clear();
     }
 
     /** Called from Swift reset() — clears sounds but preserves config. */
@@ -94,6 +108,9 @@ struct BrainSession::Impl {
         prev_matched_idx.reset();
         last_matched_idx.reset();
         morph_feedback.clear();
+        if (ola_buffer) {
+            ola_buffer->reset();
+        }
     }
 
     void initDriftFromNoise() {
@@ -155,6 +172,13 @@ void BrainSession::setWindowShape(const WindowShape shape) const noexcept {
 }
 WindowShape BrainSession::getWindowShape() const noexcept {
     return impl_->window_shape;
+}
+
+void BrainSession::setOverlapRatio(const double ratio) const noexcept {
+    impl_->overlap_ratio = std::max(0.0, std::min(ratio, 0.9));
+}
+double BrainSession::getOverlapRatio() const noexcept {
+    return impl_->overlap_ratio;
 }
 
 void BrainSession::setNumSynapses(const std::size_t n) const noexcept {
@@ -309,6 +333,12 @@ std::size_t BrainSession::advance(const double* samples, const std::size_t count
     impl_->play_head.value().depleteUsages(impl_->search_params.usage_falloff);
     impl_->prev_matched_idx = impl_->last_matched_idx;
     impl_->last_matched_idx = matched;
+    if (impl_->ola_buffer && impl_->brain) {
+        const auto& blocks = impl_->brain->blocks();
+        if (matched < blocks.size()) {
+            impl_->ola_buffer->accumulate(blocks[matched].channel_samples);
+        }
+    }
     return matched;
 }
 
@@ -333,7 +363,8 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
     infinite_params.usage_falloff = std::min(impl_->search_params.usage_falloff, 0.92);
 
     // Search: find the block most similar to the current target.
-    const std::size_t matched = impl_->play_head.value().advance(impl_->drift_print, infinite_params);
+    const std::size_t matched =
+        impl_->play_head.value().advance(impl_->drift_print, infinite_params);
     impl_->play_head.value().depleteUsages(infinite_params.usage_falloff);
 
     // The matched block becomes the next target — this traces a path through
@@ -379,6 +410,12 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
 
     impl_->prev_matched_idx = impl_->last_matched_idx;
     impl_->last_matched_idx = matched;
+    if (impl_->ola_buffer && impl_->brain) {
+        const auto& blocks = impl_->brain->blocks();
+        if (matched < blocks.size()) {
+            impl_->ola_buffer->accumulate(blocks[matched].channel_samples);
+        }
+    }
     return matched;
 }
 
@@ -398,6 +435,13 @@ std::size_t BrainSession::blockSize() const noexcept {
     }
     const auto& ch = blocks[0].channel_samples;
     return ch.empty() ? 0 : ch[0].size();
+}
+
+std::size_t BrainSession::stepSize() const noexcept {
+    if (impl_->ola_buffer && impl_->ola_buffer->active()) {
+        return impl_->ola_buffer->stepSize();
+    }
+    return blockSize();
 }
 
 int BrainSession::blockChannels(const std::size_t index) const noexcept {
@@ -429,8 +473,7 @@ std::size_t BrainSession::getBlockSamples(const std::size_t index, double* out_b
 
     // Apply spectral morph if active — uses feedback cache as `prev` so the
     // morph acts as a spectral IIR filter (reverb-like smearing at high amounts).
-    if (impl_->spectral_morph &&
-        index == impl_->last_matched_idx.value_or(index + 1)) {
+    if (impl_->spectral_morph && index == impl_->last_matched_idx.value_or(index + 1)) {
         const auto& prev_ch = (!impl_->morph_feedback.empty() && !impl_->morph_feedback[0].empty())
                                   ? impl_->morph_feedback[0]
                                   : src;
@@ -464,27 +507,61 @@ std::size_t BrainSession::getBlockSamplesInterleaved(const std::size_t index, do
     if (channels.empty()) {
         return 0;
     }
-    const std::size_t frames = std::min(channels[0].size(), max_frames);
     const std::size_t nch = channels.size();
 
-    // Apply spectral morph per-channel using feedback cache as `prev`.
-    if (impl_->spectral_morph &&
+    // ── OLA path ─────────────────────────────────────────────────────────────
+    // When OLA is active, output comes from the accumulation buffer (windowed
+    // overlap-add), not directly from the matched block's raw samples.
+    if (impl_->ola_buffer && impl_->ola_buffer->active() &&
         index == impl_->last_matched_idx.value_or(index + 1)) {
-        // Ensure feedback cache has enough channels.
+        const std::size_t step = impl_->ola_buffer->stepSize();
+        const std::size_t frames = std::min(step, max_frames);
+
+        impl_->ola_buffer->read(impl_->ola_read_scratch);
+
+        // Apply spectral morph to the OLA output (last in the effect chain).
+        if (impl_->spectral_morph) {
+            if (impl_->morph_feedback.size() < nch) {
+                impl_->morph_feedback.resize(nch);
+            }
+            for (std::size_t chi = 0; chi < nch; ++chi) {
+                const auto& curr = impl_->ola_read_scratch[chi];
+                const auto& prev =
+                    !impl_->morph_feedback[chi].empty() ? impl_->morph_feedback[chi] : curr;
+                const auto morphed =
+                    impl_->spectral_morph->apply(prev, curr, impl_->spectral_morph_amount);
+                impl_->morph_feedback[chi] = morphed;
+                const std::size_t f = std::min(morphed.size(), frames);
+                for (std::size_t i = 0; i < f; ++i) {
+                    out_buffer[(i * nch) + chi] = morphed[i];
+                }
+            }
+        } else {
+            for (std::size_t i = 0; i < frames; ++i) {
+                for (std::size_t chi = 0; chi < nch; ++chi) {
+                    out_buffer[(i * nch) + chi] = impl_->ola_read_scratch[chi][i];
+                }
+            }
+        }
+        return frames;
+    }
+
+    // ── Non-OLA path ─────────────────────────────────────────────────────────
+    const std::size_t frames = std::min(channels[0].size(), max_frames);
+
+    if (impl_->spectral_morph && index == impl_->last_matched_idx.value_or(index + 1)) {
         if (impl_->morph_feedback.size() < nch) {
             impl_->morph_feedback.resize(nch);
         }
         for (std::size_t chi = 0; chi < nch; ++chi) {
             const auto& curr_ch = channels[chi];
-            const auto& prev_ch = (!impl_->morph_feedback[chi].empty())
-                                      ? impl_->morph_feedback[chi]
-                                      : curr_ch;
-            const auto morphed = impl_->spectral_morph->apply(
-                prev_ch, curr_ch, impl_->spectral_morph_amount);
-            // Update feedback cache for next block.
+            const auto& prev_ch =
+                !impl_->morph_feedback[chi].empty() ? impl_->morph_feedback[chi] : curr_ch;
+            const auto morphed =
+                impl_->spectral_morph->apply(prev_ch, curr_ch, impl_->spectral_morph_amount);
             impl_->morph_feedback[chi] = morphed;
-            const std::size_t copy_frames = std::min(morphed.size(), frames);
-            for (std::size_t frame = 0; frame < copy_frames; ++frame) {
+            const std::size_t f = std::min(morphed.size(), frames);
+            for (std::size_t frame = 0; frame < f; ++frame) {
                 out_buffer[(frame * nch) + chi] = morphed[frame];
             }
         }
@@ -579,7 +656,8 @@ std::string BrainSession::selfTest() const {
     ss << "BrainSession selfTest:\n"
        << "  blocks        : " << blocks.size() << "\n"
        << "  block size    : " << impl_->block_size << "\n"
-       << "  window        : " << win_name << "\n"
+       << "  overlap ratio : " << impl_->overlap_ratio << " (step=" << stepSize() << " samples)\n"
+       << "  window        : " << win_name << " (synthesis/OLA)\n"
        << "  num_synapses  : " << impl_->num_synapses << "\n"
        << "  strategy      : " << strat_name << "\n"
        << "  index built   : " << (impl_->brain->hasIndex() ? "yes" : "no") << "\n"

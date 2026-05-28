@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../domain/BlockAnalysis.h"
 #include "../../domain/Block.h"
+#include "../../domain/BlockAnalysis.h"
 #include "../../domain/SearchParams.h"
 
 #include <algorithm>
@@ -167,7 +167,8 @@ inline std::size_t stickify(const BlockAnalysis& target, const std::vector<Block
     }
     const double next_usage = (next < block_usages.size()) ? block_usages[next] : 0.0;
 
-    if (const double next_score = fullScore(target, blocks[next].analysis, next_usage, params); next_score * (1.0 - params.stickyness) < closest_score * params.stickyness) {
+    if (const double next_score = fullScore(target, blocks[next].analysis, next_usage, params);
+        next_score * (1.0 - params.stickyness) < closest_score * params.stickyness) {
         return next;
     }
     return closest_idx;
@@ -186,11 +187,11 @@ inline std::size_t stickify(const BlockAnalysis& target, const std::vector<Block
  * @return             {best_index, best_score}.
  */
 template <typename IndexRange>
- std::pair<std::size_t, double> scoreCandidates(const IndexRange& indices,
-                                                      const BlockAnalysis& target,
-                                                      const std::vector<Block>& blocks,
-                                                      const std::vector<double>& block_usages,
-                                                      const SearchParams& params) {
+std::pair<std::size_t, double> scoreCandidates(const IndexRange& indices,
+                                               const BlockAnalysis& target,
+                                               const std::vector<Block>& blocks,
+                                               const std::vector<double>& block_usages,
+                                               const SearchParams& params) {
     double best_score = std::numeric_limits<double>::max();
     std::size_t best_idx = 0;
 
@@ -199,7 +200,8 @@ template <typename IndexRange>
             continue;
         }
         const double usage = (i < block_usages.size()) ? block_usages[i] : 0.0;
-        if (const double score = fullScore(target, blocks[i].analysis, usage, params); score < best_score) {
+        if (const double score = fullScore(target, blocks[i].analysis, usage, params);
+            score < best_score) {
             best_score = score;
             best_idx = i;
         }

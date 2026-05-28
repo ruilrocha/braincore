@@ -32,6 +32,7 @@ add_library(brainio-core STATIC
     src/adapter/search/MomentumSearch.cpp
     src/adapter/effects/SpectralMorph.cpp
     src/adapter/effects/EffectHelpers.cpp
+    src/adapter/effects/OlaBuffer.cpp
     ${AQUILA_SOURCES}
 )
 

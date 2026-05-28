@@ -57,12 +57,9 @@ std::shared_ptr<audio::Brain> makeBrain(const std::vector<audio::Block>& blocks)
 }
 
 // Helper: run a search and return the matched index.
-std::size_t runSearch(audio::adapter::search::ClosestSearch& search,
-                      const audio::Brain& brain,
-                      const audio::BlockAnalysis& target,
-                      const audio::SearchParams& params,
-                      std::vector<double>& block_usages,
-                      std::size_t current = 0) {
+std::size_t runSearch(audio::adapter::search::ClosestSearch& search, const audio::Brain& brain,
+                      const audio::BlockAnalysis& target, const audio::SearchParams& params,
+                      std::vector<double>& block_usages, std::size_t current = 0) {
     audio::SearchContext ctx{brain, target, params, current, block_usages};
     return search.search(ctx);
 }

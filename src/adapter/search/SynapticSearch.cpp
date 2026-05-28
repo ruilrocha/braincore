@@ -23,9 +23,9 @@ std::size_t SynapticSearch::search(const SearchContext& ctx) const {
     const auto neighbours = ctx.brain.neighbors(ctx.current_block_index);
     if (neighbours.empty()) {
         // No precomputed neighbours for this block — fall back to full scan.
-        const auto [best_idx, best_score] = SearchUtils::scoreCandidates(
-            std::views::iota(std::size_t{0}, blocks.size()), ctx.target, blocks,
-            ctx.block_usages, ctx.params);
+        const auto [best_idx, best_score] =
+            SearchUtils::scoreCandidates(std::views::iota(std::size_t{0}, blocks.size()),
+                                         ctx.target, blocks, ctx.block_usages, ctx.params);
         SearchUtils::applyUsage(ctx.block_usages, best_idx, ctx.params.usage_falloff);
         return SearchUtils::stickify(ctx.target, blocks, ctx.block_usages, best_idx, best_score,
                                      ctx.current_block_index, ctx.params);

@@ -14,7 +14,8 @@ std::size_t ClosestSearch::search(const SearchContext& ctx) const {
 
     for (std::size_t i = 0; i < blocks.size(); ++i) {
         const double usage = (i < ctx.block_usages.size()) ? ctx.block_usages[i] : 0.0;
-        if (const double score = SearchUtils::fullScore(ctx.target, blocks[i].analysis, usage, ctx.params);
+        if (const double score =
+                SearchUtils::fullScore(ctx.target, blocks[i].analysis, usage, ctx.params);
             score < best_score) {
             best_score = score;
             best_idx = i;
