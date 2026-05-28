@@ -57,7 +57,7 @@ public:
      * @param params  Live search / blend / effect parameters snapshot.
      * @return        Index into brain().blocks() of the chosen block.
      */
-    [[nodiscard]] std::size_t advance(const TargetAnalysis& target, const SearchParams& params);
+    [[nodiscard]] std::size_t advance(const BlockAnalysis& target, const SearchParams& params);
 
     /**
      * Reset traversal state: position returns to 0, all usage counters clear.

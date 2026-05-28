@@ -10,7 +10,7 @@ namespace audio {
  */
 struct BlockConfig {
     int block_size = kDefaultBlockSize;           ///< Samples per block.
-    int overlap = 0;                              ///< Overlap between consecutive blocks.
+    double overlap = 0.0;                         ///< Overlap ratio [0.0, 1.0): 0 = no overlap, 0.5 = 50% overlap.
     WindowShape window = WindowShape::Rectangle;  ///< Window shape applied before analysis.
 };
 

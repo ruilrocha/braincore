@@ -12,35 +12,32 @@ namespace audio::adapter::search {
 
 SynapticSearch::SynapticSearch(const std::size_t num_synapses) : num_synapses_(num_synapses) {}
 
-std::size_t SynapticSearch::search(const TargetAnalysis& target, const audio::Brain& brain,
-                                   const SearchParams& params,
-                                   const std::size_t current_block_index,
-                                   std::vector<double>& block_usages) const {
-    const auto* idx = brain.index();
-    if (idx == nullptr) {
+std::size_t SynapticSearch::search(const SearchContext& ctx) const {
+    if (!ctx.brain.hasIndex()) {
         throw std::runtime_error(
-            "SynapticSearch: brain.index() is null — call brain->buildIndex() before playback.");
+            "SynapticSearch: brain index not built — call brain.buildIndex() before playback.");
     }
 
-    const auto& blocks = brain.blocks();
+    const auto& blocks = ctx.brain.blocks();
 
-    const auto neighbours = idx->neighbors(current_block_index);
+    const auto neighbours = ctx.brain.neighbors(ctx.current_block_index);
     if (neighbours.empty()) {
         // No precomputed neighbours for this block — fall back to full scan.
         const auto [best_idx, best_score] = SearchUtils::scoreCandidates(
-            std::views::iota(std::size_t{0}, blocks.size()), target, blocks, block_usages, params);
-        SearchUtils::applyUsage(block_usages, best_idx, params.usage_falloff);
-        return SearchUtils::stickify(target, blocks, block_usages, best_idx, best_score,
-                                     current_block_index, params);
+            std::views::iota(std::size_t{0}, blocks.size()), ctx.target, blocks,
+            ctx.block_usages, ctx.params);
+        SearchUtils::applyUsage(ctx.block_usages, best_idx, ctx.params.usage_falloff);
+        return SearchUtils::stickify(ctx.target, blocks, ctx.block_usages, best_idx, best_score,
+                                     ctx.current_block_index, ctx.params);
     }
 
     const std::size_t limit = std::min(num_synapses_, neighbours.size());
-    const auto [best_idx, best_score] =
-        SearchUtils::scoreCandidates(neighbours.first(limit), target, blocks, block_usages, params);
+    const auto [best_idx, best_score] = SearchUtils::scoreCandidates(
+        neighbours.first(limit), ctx.target, blocks, ctx.block_usages, ctx.params);
 
-    SearchUtils::applyUsage(block_usages, best_idx, params.usage_falloff);
-    return SearchUtils::stickify(target, blocks, block_usages, best_idx, best_score,
-                                 current_block_index, params);
+    SearchUtils::applyUsage(ctx.block_usages, best_idx, ctx.params.usage_falloff);
+    return SearchUtils::stickify(ctx.target, blocks, ctx.block_usages, best_idx, best_score,
+                                 ctx.current_block_index, ctx.params);
 }
 
 }  // namespace audio::adapter::search

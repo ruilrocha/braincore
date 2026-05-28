@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -132,24 +133,31 @@ public:
 
     [[nodiscard]] const BlockConfig& blockConfig() const { return config_; }
     [[nodiscard]] int blockSize() const { return config_.block_size; }
-    [[nodiscard]] int overlap() const { return config_.overlap; }
 
     [[nodiscard]] const port::IAnalyser& analyser() const { return *analyser_; }
     [[nodiscard]] const std::vector<Block>& blocks() const { return blocks_; }
 
     // ── Index accessors ─────────────────────────────────────────────────
 
+    /** Returns true if buildIndex() has been called. */
+    [[nodiscard]] bool hasIndex() const noexcept { return index_.has_value(); }
+
     /**
-     * Returns the nearest-neighbour index, or nullptr if buildIndex() has not
-     * been called.
+     * Return up to @p k nearest neighbours of @p fingerprint in the index.
      *
-     * The index provides both O(1) precomputed neighbourhood access
-     * (`index()->neighbors(i)`) and O(log N) dynamic queries
-     * (`index()->kNearest(fp, k)`).
+     * Requires buildIndex() to have been called; throws std::runtime_error if
+     * the index is absent.
      */
-    [[nodiscard]] const NearestNeighbourIndex* index() const {
-        return index_.has_value() ? &index_.value() : nullptr;
-    }
+    [[nodiscard]] std::vector<std::size_t> kNearest(const std::vector<double>& fingerprint,
+                                                    std::size_t k) const;
+
+    /**
+     * Return the precomputed K nearest neighbours of block @p block_index (O(1)).
+     *
+     * Returns an empty span if the index is absent or @p block_index is out of
+     * range.  The returned span is valid for the lifetime of this Brain.
+     */
+    [[nodiscard]] std::span<const std::size_t> neighbors(std::size_t block_index) const;
 
 private:
     std::shared_ptr<port::IAnalyser> analyser_;

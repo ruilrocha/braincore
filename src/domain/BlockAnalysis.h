@@ -34,13 +34,16 @@ struct AudioPrint {
 };
 
 /**
- * A pair of AudioPrints for a target block: raw and amplitude-normalised.
+ * A pair of AudioPrints for a block: raw and amplitude-normalised.
  *
- * Passed to search strategies so they can apply n_ratio blending correctly.
- * The raw print is always required; the normalised print is only computed when
- * `SearchParams::n_ratio > 0`.
+ * Used uniformly for both source blocks and search targets so the same type
+ * flows through Block storage, PlayHead, and ISearchStrategy without needing
+ * to unpack two separate AudioPrints at every call site.
+ *
+ * The raw print is always required; the normalised print is only computed
+ * (and meaningful) when `SearchParams::n_ratio > 0`.
  */
-struct TargetAnalysis {
+struct BlockAnalysis {
     AudioPrint print;             ///< Raw fingerprint (from windowed samples).
     AudioPrint normalised_print;  ///< Amplitude-normalised fingerprint (DC-removed + peak-scaled).
 };

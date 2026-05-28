@@ -20,6 +20,7 @@ file(GLOB_RECURSE AQUILA_SOURCES "src/aquila/*.cpp")
 add_library(brainio-core STATIC
     src/BrainSession.cpp
     src/domain/Brain.cpp
+    src/domain/NearestNeighbourIndex.cpp
     src/domain/PlayHead.cpp
     src/domain/Sound.cpp
     src/adapter/analysis/MfccAnalyser.cpp

@@ -30,9 +30,9 @@ struct SearchParams {
     /// instead of the globally closest one, for temporal coherence.
     double stickyness = 0.0;
 
-    /// Block overlap in samples (0 = no overlap).
+    /// Block overlap ratio [0.0, 1.0): 0 = no overlap, 0.5 = 50% overlap.
     /// Overlapping blocks produce smoother spectral transitions.
-    int overlap = 0;
+    double overlap = 0.0;
 
     // ── Usage tracking ("novelty" & "boredom") ─────────────────────────
 

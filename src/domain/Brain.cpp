@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <ranges>
+#include <span>
+#include <stdexcept>
 #include <utility>
 
 namespace audio {
@@ -25,8 +27,9 @@ std::shared_ptr<Brain> Brain::rebuild(const std::vector<Block>& blocks,
 void Brain::rebuildActiveFlags() {
     block_active_.assign(blocks_.size(), false);
     for (const auto& src : sources_) {
-        if (!src.enabled)
+        if (!src.enabled) {
             continue;
+        }
         const std::size_t end = std::min(src.end, blocks_.size());
         for (std::size_t i = src.start; i < end; ++i) {
             block_active_[i] = true;
@@ -44,18 +47,19 @@ void Brain::buildIndex(const std::size_t num_synapses) {
     const std::size_t num_blocks = blocks_.size();
     const std::size_t num_neighbors = std::min(num_synapses, num_blocks > 0 ? num_blocks - 1 : 0);
 
-    auto dist_fn = [this](const std::vector<double>& fp_a, const std::vector<double>& fp_b) {
-        return analyser_->distance(fp_a, fp_b);
+    auto analyser = analyser_;
+    auto dist_fn = [analyser](const auto& fingerprint_a, const auto& fingerprint_b) {
+        return analyser->distance(fingerprint_a, fingerprint_b);
     };
 
-    std::vector<std::vector<double>> fps;
-    fps.reserve(num_blocks);
+    std::vector<std::vector<double>> fingerprints;
+    fingerprints.reserve(num_blocks);
     for (const auto& block : blocks_) {
-        fps.push_back(block.print.mfcc);
+        fingerprints.push_back(block.analysis.print.mel);
     }
 
     index_.emplace();
-    index_->build(std::move(fps), dist_fn, num_neighbors);
+    index_->build(std::move(fingerprints), dist_fn, num_neighbors);
 }
 
 // ── Ingestion ──────────────────────────────────────────────────────────
@@ -69,7 +73,8 @@ void Brain::addSound(const Sound& sound, const std::string& name,
     const Channel& ch0 = sound.getChannel(0);
     const int sample_rate = sound.getSampleRate();
     const auto block_size = static_cast<std::size_t>(config_.block_size);
-    const auto step = static_cast<std::size_t>(config_.block_size - config_.overlap);
+    const auto step = static_cast<std::size_t>(
+        std::max(1, static_cast<int>(config_.block_size * (1.0 - config_.overlap))));
 
     SourceSound src;
     src.filename = name;
@@ -83,7 +88,7 @@ void Brain::addSound(const Sound& sound, const std::string& name,
     const double step_sec = static_cast<double>(step) / static_cast<double>(sample_rate);
 
     // Precompute window coefficients once for all blocks in this sound.
-    const auto window_coeffs = WindowFunction::makeCoefficients(block_size, config_.window);
+    const auto window_coefficients = WindowFunction::makeCoefficients(block_size, config_.window);
 
     std::size_t block_index = 0;
     for (std::size_t i = 0; i < ch0.size(); i += step, ++block_index) {
@@ -116,19 +121,19 @@ void Brain::addSound(const Sound& sound, const std::string& name,
         const auto& raw_ch0 = block.channel_samples[0];
 
         // ── Apply precomputed window and analyse ───────────────────────
-        std::vector<double> windowed(raw_ch0.begin(), raw_ch0.begin() + available);
+        std::vector windowed(raw_ch0.begin(), raw_ch0.begin() + static_cast<long>(available));
         windowed.resize(block_size, 0.0);
-        WindowFunction::applyCoefficients(windowed, window_coeffs);
+        WindowFunction::applyCoefficients(windowed, window_coefficients);
 
-        block.print = analyser_->analyse(windowed, sample_rate);
+        block.analysis.print = analyser_->analyse(windowed, sample_rate);
 
         // ── Normalised fingerprints (amplitude-invariant) ──────────────
-        std::vector<double> norm(raw_ch0.begin(), raw_ch0.begin() + available);
+        std::vector norm(raw_ch0.begin(), raw_ch0.begin() + static_cast<long>(available));
         norm.resize(block_size, 0.0);
         WindowFunction::normalise(norm);
-        WindowFunction::applyCoefficients(norm, window_coeffs);
+        WindowFunction::applyCoefficients(norm, window_coefficients);
 
-        block.normalised_print = analyser_->analyse(norm, sample_rate);
+        block.analysis.normalised_print = analyser_->analyse(norm, sample_rate);
 
         blocks_.push_back(std::move(block));
     }
@@ -161,6 +166,23 @@ bool Brain::isBlockActive(const std::size_t index) const {
         return true;  // no source tracking (e.g. after rebuild())
     }
     return index < block_active_.size() && block_active_[index];
+}
+
+// ── Index accessor delegators ──────────────────────────────────────────
+
+std::vector<std::size_t> Brain::kNearest(const std::vector<double>& fingerprint,
+                                         const std::size_t k) const {
+    if (!index_.has_value()) {
+        throw std::runtime_error("Brain::kNearest: index not built — call buildIndex() first.");
+    }
+    return index_->kNearest(fingerprint, k);
+}
+
+std::span<const std::size_t> Brain::neighbors(const std::size_t block_index) const {
+    if (!index_.has_value()) {
+        return {};
+    }
+    return index_->neighbors(block_index);
 }
 
 }  // namespace audio

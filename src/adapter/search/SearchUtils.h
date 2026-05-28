@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../domain/AudioPrint.h"
+#include "../../domain/BlockAnalysis.h"
 #include "../../domain/Block.h"
 #include "../../domain/SearchParams.h"
 
@@ -61,8 +61,9 @@ inline double ssd(const std::vector<double>& a, const std::vector<double>& b, st
 /// Normalised SSD over the full (overlapping) length of two vectors.
 inline double ssdFull(const std::vector<double>& a, const std::vector<double>& b) {
     const std::size_t n = std::min(a.size(), b.size());
-    if (n == 0)
+    if (n == 0) {
         return 0.0;
+    }
     return ssd(a, b, 0, n);
 }
 
@@ -90,17 +91,20 @@ inline double weightedDistance(const AudioPrint& a, const AudioPrint& b,
     }
 
     double score = 0.0;
-    if (w_mfcc > 0.0)
+    if (w_mfcc > 0.0) {
         score += (w_mfcc / total_w) * ssdFull(a.mfcc, b.mfcc);
-    if (w_mel > 0.0)
+    }
+    if (w_mel > 0.0) {
         score += (w_mel / total_w) * ssdFull(a.mel, b.mel);
+    }
     if (w_spectral > 0.0) {
         const auto s0 = static_cast<std::size_t>(std::max(0, params.spectral_start));
         const auto s1 = static_cast<std::size_t>(std::max(0, params.spectral_end));
         score += (w_spectral / total_w) * ssd(a.spectral, b.spectral, s0, s1);
     }
-    if (w_chroma > 0.0)
+    if (w_chroma > 0.0) {
         score += (w_chroma / total_w) * ssdFull(a.chroma, b.chroma);
+    }
 
     return score;
 }
@@ -110,17 +114,17 @@ inline double weightedDistance(const AudioPrint& a, const AudioPrint& b,
 // ── Core scoring functions ─────────────────────────────────────────────
 
 /**
- * Weighted distance between a TargetAnalysis and a candidate block's prints.
+ * Weighted distance between two BlockAnalysis bundles.
  *
  * Applies n_ratio to blend between raw and amplitude-normalised comparisons.
  * Does NOT include the usage penalty — add that separately if needed.
  */
-inline double weightedDist(const TargetAnalysis& target, const AudioPrint& candidate_print,
-                           const AudioPrint& candidate_norm_print, const SearchParams& params) {
-    double d = detail::weightedDistance(target.print, candidate_print, params);
+inline double weightedDist(const BlockAnalysis& target, const BlockAnalysis& candidate,
+                           const SearchParams& params) {
+    double d = detail::weightedDistance(target.print, candidate.print, params);
     if (params.n_ratio > 0.0) {
         const double nd =
-            detail::weightedDistance(target.normalised_print, candidate_norm_print, params);
+            detail::weightedDistance(target.normalised_print, candidate.normalised_print, params);
         d = detail::blend(d, nd, params.n_ratio);
     }
     return d;
@@ -129,27 +133,28 @@ inline double weightedDist(const TargetAnalysis& target, const AudioPrint& candi
 /**
  * Full score for a candidate block: weighted distance + usage penalty.
  *
- * @param target          Raw + normalised target fingerprints.
- * @param candidate_print Raw AudioPrint of the candidate block.
- * @param candidate_norm  Normalised AudioPrint of the candidate block.
+ * @param target          Target block analysis (raw + normalised fingerprints).
+ * @param candidate       Candidate block analysis (raw + normalised fingerprints).
  * @param candidate_usage Current usage counter for the candidate.
  * @param params          Search parameters.
  * @return                Score (lower = better match).
  */
-inline double fullScore(const TargetAnalysis& target, const AudioPrint& candidate_print,
-                        const AudioPrint& candidate_norm, double candidate_usage,
-                        const SearchParams& params) {
-    return weightedDist(target, candidate_print, candidate_norm, params) +
-           (candidate_usage * params.usage_weight);
+inline double fullScore(const BlockAnalysis& target, const BlockAnalysis& candidate,
+                        double candidate_usage, const SearchParams& params) {
+    return weightedDist(target, candidate, params) + (candidate_usage * params.usage_weight);
 }
 
 // ── Stickyness ─────────────────────────────────────────────────────────
 
 /**
- * Apply stickyness: if the next sequential block scores well enough compared
- * to the global winner, prefer it for temporal coherence.
+ * Apply stickyness: bias toward the next sequential block for temporal coherence.
+ *
+ * `stickyness` controls how much of a score advantage the next block receives.
+ * At 0, it must actually be the best match; at 1 it can be up to kMaxStickyRatio
+ * times worse than the global winner. The cap prevents forcing obviously bad
+ * blocks (e.g. silence) regardless of stickyness value.
  */
-inline std::size_t stickify(const TargetAnalysis& target, const std::vector<Block>& blocks,
+inline std::size_t stickify(const BlockAnalysis& target, const std::vector<Block>& blocks,
                             const std::vector<double>& block_usages, const std::size_t closest_idx,
                             const double closest_score, const std::size_t current_idx,
                             const SearchParams& params) {
@@ -161,10 +166,8 @@ inline std::size_t stickify(const TargetAnalysis& target, const std::vector<Bloc
         return closest_idx;
     }
     const double next_usage = (next < block_usages.size()) ? block_usages[next] : 0.0;
-    const double next_score =
-        fullScore(target, blocks[next].print, blocks[next].normalised_print, next_usage, params);
 
-    if (next_score * (1.0 - params.stickyness) < closest_score * params.stickyness) {
+    if (const double next_score = fullScore(target, blocks[next].analysis, next_usage, params); next_score * (1.0 - params.stickyness) < closest_score * params.stickyness) {
         return next;
     }
     return closest_idx;
@@ -183,8 +186,8 @@ inline std::size_t stickify(const TargetAnalysis& target, const std::vector<Bloc
  * @return             {best_index, best_score}.
  */
 template <typename IndexRange>
-inline std::pair<std::size_t, double> scoreCandidates(const IndexRange& indices,
-                                                      const TargetAnalysis& target,
+ std::pair<std::size_t, double> scoreCandidates(const IndexRange& indices,
+                                                      const BlockAnalysis& target,
                                                       const std::vector<Block>& blocks,
                                                       const std::vector<double>& block_usages,
                                                       const SearchParams& params) {
@@ -192,12 +195,11 @@ inline std::pair<std::size_t, double> scoreCandidates(const IndexRange& indices,
     std::size_t best_idx = 0;
 
     for (const std::size_t i : indices) {
-        if (i >= blocks.size())
+        if (i >= blocks.size()) {
             continue;
+        }
         const double usage = (i < block_usages.size()) ? block_usages[i] : 0.0;
-        const double score =
-            fullScore(target, blocks[i].print, blocks[i].normalised_print, usage, params);
-        if (score < best_score) {
+        if (const double score = fullScore(target, blocks[i].analysis, usage, params); score < best_score) {
             best_score = score;
             best_idx = i;
         }

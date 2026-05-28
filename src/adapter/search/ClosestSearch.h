@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../domain/Brain.h"
+#include "../../domain/SearchContext.h"
 #include "../../domain/port/ISearchStrategy.h"
 
 namespace audio::adapter::search {
@@ -14,9 +15,7 @@ namespace audio::adapter::search {
  */
 class ClosestSearch final : public port::ISearchStrategy {
 public:
-    [[nodiscard]] std::size_t search(const TargetAnalysis& target, const audio::Brain& brain,
-                                     const SearchParams& params, std::size_t current_block_index,
-                                     std::vector<double>& block_usages) const override;
+    [[nodiscard]] std::size_t search(const SearchContext& ctx) const override;
 };
 
 }  // namespace audio::adapter::search

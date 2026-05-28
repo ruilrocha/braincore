@@ -7,19 +7,16 @@
 
 namespace audio::adapter::search {
 
-std::size_t MomentumSearch::search(const TargetAnalysis& target, const audio::Brain& brain,
-                                   const SearchParams& params,
-                                   const std::size_t current_block_index,
-                                   std::vector<double>& block_usages) const {
-    const auto& blocks = brain.blocks();
+std::size_t MomentumSearch::search(const SearchContext& ctx) const {
+    const auto& blocks = ctx.brain.blocks();
 
     if (blocks.empty()) {
         return 0;
     }
 
-    const auto& current_mfcc = blocks[current_block_index].print.mfcc;
-    const double mom = std::clamp(params.momentum, 0.0, 1.0);
-    const double decay = std::clamp(params.momentum_decay, 0.0, 1.0);
+    const auto& current_mfcc = blocks[ctx.current_block_index].analysis.print.mfcc;
+    const double mom = std::clamp(ctx.params.momentum, 0.0, 1.0);
+    const double decay = std::clamp(ctx.params.momentum_decay, 0.0, 1.0);
 
     // Update velocity from previous MFCC step.
     if (prev_fp_.size() == current_mfcc.size()) {
@@ -36,7 +33,7 @@ std::size_t MomentumSearch::search(const TargetAnalysis& target, const audio::Br
     prev_fp_ = current_mfcc;
 
     // Build a blended MFCC search target: actual target + predicted position.
-    const auto& target_mfcc = target.print.mfcc;
+    const auto& target_mfcc = ctx.target.print.mfcc;
     std::vector<double> blended_mfcc(target_mfcc.size());
     for (std::size_t i = 0; i < target_mfcc.size(); ++i) {
         const double predicted =
@@ -46,8 +43,8 @@ std::size_t MomentumSearch::search(const TargetAnalysis& target, const audio::Br
         blended_mfcc[i] = (target_mfcc[i] * (1.0 - mom)) + (predicted * mom);
     }
 
-    // Wrap blended MFCC into a TargetAnalysis (momentum only operates in MFCC space).
-    TargetAnalysis blended_target;
+    // Wrap blended MFCC into a BlockAnalysis (momentum only operates in MFCC space).
+    BlockAnalysis blended_target;
     blended_target.print.mfcc = blended_mfcc;
     blended_target.normalised_print.mfcc = blended_mfcc;
 
@@ -56,18 +53,18 @@ std::size_t MomentumSearch::search(const TargetAnalysis& target, const audio::Br
     std::size_t best_idx = 0;
 
     for (std::size_t i = 0; i < blocks.size(); ++i) {
-        const double usage = (i < block_usages.size()) ? block_usages[i] : 0.0;
-        const double score = SearchUtils::fullScore(blended_target, blocks[i].print,
-                                                    blocks[i].normalised_print, usage, params);
+        const double usage = (i < ctx.block_usages.size()) ? ctx.block_usages[i] : 0.0;
+        const double score =
+            SearchUtils::fullScore(blended_target, blocks[i].analysis, usage, ctx.params);
         if (score < best_score) {
             best_score = score;
             best_idx = i;
         }
     }
 
-    SearchUtils::applyUsage(block_usages, best_idx, params.usage_falloff);
-    return SearchUtils::stickify(blended_target, blocks, block_usages, best_idx, best_score,
-                                 current_block_index, params);
+    SearchUtils::applyUsage(ctx.block_usages, best_idx, ctx.params.usage_falloff);
+    return SearchUtils::stickify(blended_target, blocks, ctx.block_usages, best_idx, best_score,
+                                 ctx.current_block_index, ctx.params);
 }
 
 }  // namespace audio::adapter::search

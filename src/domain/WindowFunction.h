@@ -26,9 +26,9 @@ struct WindowFunction {
      * `applyCoefficients` can be skipped entirely for that shape.
      */
     [[nodiscard]] static std::vector<double> makeCoefficients(std::size_t size, WindowShape shape) {
-        std::vector<double> coeffs(size, 1.0);
+        std::vector coefficients(size, 1.0);
         if (shape == WindowShape::Rectangle || size == 0) {
-            return coeffs;
+            return coefficients;
         }
 
         const auto num_samples = static_cast<double>(size);
@@ -36,24 +36,24 @@ struct WindowFunction {
 
         for (std::size_t index = 0; index < size; ++index) {
             const auto nd = static_cast<double>(index);
-            double w = 1.0;
+            double win = 1.0;
             switch (shape) {
                 case WindowShape::Hamming:
-                    w = 0.53836 - (0.46164 * std::cos(pi2 * nd / (num_samples - 1.0)));
+                    win = 0.53836 - (0.46164 * std::cos(pi2 * nd / (num_samples - 1.0)));
                     break;
                 case WindowShape::Hann:
-                    w = 0.5 * (1.0 - std::cos(pi2 * nd / (num_samples - 1.0)));
+                    win = 0.5 * (1.0 - std::cos(pi2 * nd / (num_samples - 1.0)));
                     break;
                 case WindowShape::Blackman:
-                    w = 0.42 - (0.5 * std::cos(pi2 * nd / (num_samples - 1.0))) +
+                    win = 0.42 - (0.5 * std::cos(pi2 * nd / (num_samples - 1.0))) +
                         (0.08 * std::cos(4.0 * std::numbers::pi * nd / (num_samples - 1.0)));
                     break;
                 case WindowShape::Bartlett:
-                    w = 1.0 -
+                    win = 1.0 -
                         ((2.0 * std::fabs(nd - ((num_samples - 1.0) / 2.0))) / (num_samples - 1.0));
                     break;
                 case WindowShape::FlatTop:
-                    w = 1.0 - (1.93 * std::cos(pi2 * nd / (num_samples - 1.0))) +
+                    win = 1.0 - (1.93 * std::cos(pi2 * nd / (num_samples - 1.0))) +
                         (1.29 * std::cos(4.0 * std::numbers::pi * nd / (num_samples - 1.0))) -
                         (0.388 * std::cos(6.0 * std::numbers::pi * nd / (num_samples - 1.0))) +
                         (0.0322 * std::cos(8.0 * std::numbers::pi * nd / (num_samples - 1.0)));
@@ -62,27 +62,27 @@ struct WindowFunction {
                     constexpr double sigma = 0.5;
                     const double arg =
                         (nd - (num_samples - 1.0) / 2.0) / (sigma * (num_samples - 1.0) / 2.0);
-                    w = std::exp(-0.5 * arg * arg);
+                    win = std::exp(-0.5 * arg * arg);
                     break;
                 }
                 case WindowShape::Rectangle:
                     break;
             }
-            coeffs[index] = w;
+            coefficients[index] = win;
         }
-        return coeffs;
+        return coefficients;
     }
 
     /**
      * Apply precomputed window coefficients to samples in-place.
      *
-     * @p coeffs must be the same size as @p samples. If sizes differ, the
+     * @p coefficients must be the same size as @p samples. If sizes differ, the
      * shorter length is used (safe but likely a programming error).
      */
-    static void applyCoefficients(std::vector<double>& samples, const std::vector<double>& coeffs) {
-        const std::size_t n = std::min(samples.size(), coeffs.size());
-        for (std::size_t i = 0; i < n; ++i) {
-            samples[i] *= coeffs[i];
+    static void applyCoefficients(std::vector<double>& samples, const std::vector<double>& coefficients) {
+        const std::size_t n_coefficients = std::min(samples.size(), coefficients.size());
+        for (std::size_t i = 0; i < n_coefficients; ++i) {
+            samples[i] *= coefficients[i];
         }
     }
 
@@ -94,8 +94,8 @@ struct WindowFunction {
         if (shape == WindowShape::Rectangle || samples.empty()) {
             return;
         }
-        const auto coeffs = makeCoefficients(samples.size(), shape);
-        applyCoefficients(samples, coeffs);
+        const auto coefficients = makeCoefficients(samples.size(), shape);
+        applyCoefficients(samples, coefficients);
     }
 
     /**
@@ -109,16 +109,14 @@ struct WindowFunction {
 
         double min = samples[0];
         double max = samples[0];
-        for (const double s : samples) {
-            if (s < min)
-                min = s;
-            if (s > max)
-                max = s;
+        for (const double sample : samples) {
+            min = std::min(sample, min);
+            max = std::max(sample, max);
         }
 
         const double mid = min + ((max - min) * 0.5);
-        for (double& s : samples) {
-            s -= mid;
+        for (double& sample : samples) {
+            sample -= mid;
         }
 
         min -= mid;
@@ -129,8 +127,8 @@ struct WindowFunction {
         }
 
         const double inv = 1.0 / peak;
-        for (double& s : samples) {
-            s *= inv;
+        for (double& sample : samples) {
+            sample *= inv;
         }
     }
 };

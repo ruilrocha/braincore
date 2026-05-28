@@ -19,6 +19,9 @@ std::vector<double> SpectralMorph::apply(const std::vector<double>& prev,
         return current;
     }
 
+    // amount is the IIR feedback coefficient: prev × amount + curr × (1−amount).
+    // With BrainSession's morph_feedback cache, `prev` is the last morphed output,
+    // so this is a genuine spectral IIR — 0=dry, 0.9=long reverb, 1.0=freeze.
     const double inv_amount = 1.0 - amount;
 
     // ── Forward FFT of both blocks ─────────────────────────────────────

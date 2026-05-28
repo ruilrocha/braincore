@@ -31,7 +31,7 @@ struct VideoMetadata {
     std::string path;
 
     /// Time offset in seconds where this sound starts in the video.
-    /// Typically 0.0 for full-file loads.
+    /// Typically, 0.0 for full-file loads.
     double start_offset_seconds = 0.0;
 };
 

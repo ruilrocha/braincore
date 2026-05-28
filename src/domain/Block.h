@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AudioPrint.h"
+#include "BlockAnalysis.h"
 #include "VideoSegment.h"
 
 #include <optional>
@@ -28,11 +28,8 @@ struct Block {
     std::vector<std::vector<double>> channel_samples;
 
     // ── Audio prints ───────────────────────────────────────────────────
-    /// Fingerprints computed from raw windowed samples.
-    AudioPrint print;
-
-    /// Fingerprints computed from amplitude-normalised samples.
-    AudioPrint normalised_print;
+    /// Complete fingerprint analysis for this block (raw + normalised).
+    BlockAnalysis analysis;
 
     // ── Source metadata ────────────────────────────────────────────────
     std::string source_name;  ///< Label / path of the originating sound.

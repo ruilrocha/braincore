@@ -1,6 +1,7 @@
 #include "adapter/search/ClosestSearch.h"
 #include "domain/Block.h"
 #include "domain/Brain.h"
+#include "domain/SearchContext.h"
 #include "domain/SearchParams.h"
 #include "domain/port/IAnalyser.h"
 #include "gtest/gtest.h"
@@ -42,10 +43,10 @@ public:
 // Helper: build a block with a given mfcc fingerprint.
 audio::Block makeBlock(const std::vector<double>& mfcc) {
     audio::Block b;
-    b.print.mfcc = mfcc;
-    b.print.spectral = mfcc;
-    b.normalised_print.mfcc = mfcc;
-    b.normalised_print.spectral = mfcc;
+    b.analysis.print.mfcc = mfcc;
+    b.analysis.print.spectral = mfcc;
+    b.analysis.normalised_print.mfcc = mfcc;
+    b.analysis.normalised_print.spectral = mfcc;
     return b;
 }
 
@@ -53,6 +54,17 @@ audio::Block makeBlock(const std::vector<double>& mfcc) {
 std::shared_ptr<audio::Brain> makeBrain(const std::vector<audio::Block>& blocks) {
     auto analyser = std::make_shared<EuclideanAnalyser>();
     return audio::Brain::rebuild(blocks, std::move(analyser), audio::BlockConfig{});
+}
+
+// Helper: run a search and return the matched index.
+std::size_t runSearch(audio::adapter::search::ClosestSearch& search,
+                      const audio::Brain& brain,
+                      const audio::BlockAnalysis& target,
+                      const audio::SearchParams& params,
+                      std::vector<double>& block_usages,
+                      std::size_t current = 0) {
+    audio::SearchContext ctx{brain, target, params, current, block_usages};
+    return search.search(ctx);
 }
 
 }  // namespace
@@ -73,10 +85,10 @@ TEST(ClosestSearch, PicksNearestBlock) {
     params.usage_weight = 0.0;
 
     std::vector<double> block_usages(blocks.size(), 0.0);
-    audio::TargetAnalysis target;
+    audio::BlockAnalysis target;
     target.print.mfcc = {0.1};
     target.normalised_print.mfcc = {0.1};
-    const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
+    const std::size_t idx = runSearch(search, *brain, target, params, block_usages);
     EXPECT_EQ(idx, 0U);
 }
 
@@ -88,16 +100,16 @@ TEST(ClosestSearch, PicksMiddleBlockWhenClosest) {
     };
 
     auto brain = makeBrain(blocks);
-    const audio::adapter::search::ClosestSearch search;
+    audio::adapter::search::ClosestSearch search;
     audio::SearchParams params;
     params.stickyness = 0.0;
     params.usage_weight = 0.0;
 
     std::vector<double> block_usages(blocks.size(), 0.0);
-    audio::TargetAnalysis target;
+    audio::BlockAnalysis target;
     target.print.mfcc = {0.9};
     target.normalised_print.mfcc = {0.9};
-    const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
+    const std::size_t idx = runSearch(search, *brain, target, params, block_usages);
     EXPECT_EQ(idx, 1U);
 }
 
@@ -118,10 +130,10 @@ TEST(ClosestSearch, UsagePenaltyShiftsSelection) {
     params.usage_weight = 1.0;
 
     const std::vector target_vec = {0.0};
-    audio::TargetAnalysis target;
+    audio::BlockAnalysis target;
     target.print.mfcc = target_vec;
     target.normalised_print.mfcc = target_vec;
-    const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
+    const std::size_t idx = runSearch(search, *brain, target, params, block_usages);
     EXPECT_EQ(idx, 1U);
 }
 
@@ -129,13 +141,13 @@ TEST(ClosestSearch, SingleBlockAlwaysSelected) {
     const std::vector blocks = {makeBlock({42.0})};
 
     auto brain = makeBrain(blocks);
-    const audio::adapter::search::ClosestSearch search;
+    audio::adapter::search::ClosestSearch search;
     constexpr audio::SearchParams params;
 
     std::vector<double> block_usages(blocks.size(), 0.0);
-    audio::TargetAnalysis target;
+    audio::BlockAnalysis target;
     target.print.mfcc = {0.0};
     target.normalised_print.mfcc = {0.0};
-    const std::size_t idx = search.search(target, *brain, params, 0, block_usages);
+    const std::size_t idx = runSearch(search, *brain, target, params, block_usages);
     EXPECT_EQ(idx, 0U);
 }

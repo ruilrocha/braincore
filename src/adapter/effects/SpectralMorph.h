@@ -25,7 +25,4 @@ private:
     std::shared_ptr<port::IFft> fft_;
 };
 
-// Keep old name as alias for backward compatibility.
-using FftwSpectralMorph = SpectralMorph;
-
 }  // namespace audio::adapter::effects

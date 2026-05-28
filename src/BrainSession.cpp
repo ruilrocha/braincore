@@ -1,11 +1,12 @@
 #include "BrainSession.h"
 
 #include "adapter/analysis/MfccAnalyser.h"
+#include "adapter/effects/SpectralMorph.h"
 #include "adapter/fft/PocketfftBackend.h"
 #include "adapter/search/ClosestSearch.h"
 #include "adapter/search/SynapticSearch.h"
 #include "adapter/search/VpTreeSearch.h"
-#include "domain/AudioPrint.h"
+#include "domain/BlockAnalysis.h"
 #include "domain/BlockConfig.h"
 #include "domain/Brain.h"
 #include "domain/PlayHead.h"
@@ -49,9 +50,18 @@ struct BrainSession::Impl {
     std::vector<BlockMeta> block_meta;
 
     // Infinite mode drift state
-    AudioPrint drift_print;          ///< Evolving synthetic "target" fingerprint.
+    BlockAnalysis drift_print;         ///< Evolving "target" fingerprint for path walking.
     std::size_t drift_last_idx = 0;  ///< Last matched index, for stuck detection.
     int drift_stuck_count = 0;       ///< How many steps the same block was returned.
+
+    // Effect pipeline
+    std::unique_ptr<adapter::effects::SpectralMorph> spectral_morph;
+    double spectral_morph_amount = 0.0;
+    std::optional<std::size_t> prev_matched_idx;  ///< Block index from the previous advance() call.
+    std::optional<std::size_t> last_matched_idx;  ///< Block index from the most recent advance() call.
+    /// Feedback cache: last morphed output per channel. Fed back as `prev` on the
+    /// next block so the morph acts as a spectral IIR filter (reverb-like smearing).
+    std::vector<std::vector<double>> morph_feedback;
 
     Impl() = default;  // Brain created lazily in addSamples so config is applied first
 
@@ -59,6 +69,7 @@ struct BrainSession::Impl {
         auto fft = std::make_shared<adapter::fft::PocketfftBackend>();
         auto analyser = std::make_shared<adapter::analysis::MfccAnalyser>(std::move(fft));
         BlockConfig cfg;
+        cfg.overlap = 0.5;
         cfg.block_size = block_size;
         cfg.window = window_shape;
         brain = std::make_shared<Brain>(std::move(analyser), cfg);
@@ -67,6 +78,9 @@ struct BrainSession::Impl {
         drift_print = {};
         drift_last_idx = 0;
         drift_stuck_count = 0;
+        prev_matched_idx.reset();
+        last_matched_idx.reset();
+        morph_feedback.clear();
     }
 
     /** Called from Swift reset() — clears sounds but preserves config. */
@@ -77,18 +91,17 @@ struct BrainSession::Impl {
         drift_print = {};
         drift_last_idx = 0;
         drift_stuck_count = 0;
+        prev_matched_idx.reset();
+        last_matched_idx.reset();
+        morph_feedback.clear();
     }
 
-    /** Seed drift_print from a randomly chosen real block in the brain.
-     *  Starting in actual timbral space avoids silent/near-zero blocks that
-     *  random noise tends to match.
-     */
     void initDriftFromNoise() {
         if (!brain || brain->empty()) {
             return;
         }
         const std::size_t seed_idx = rng::randomIndex(brain->blocks().size());
-        const AudioPrint& ref = brain->blocks()[seed_idx].print;
+        const AudioPrint& ref = brain->blocks()[seed_idx].analysis.print;
         auto copyWithNoise = [](const std::vector<double>& src) {
             std::vector<double> vec(src.size());
             for (std::size_t i = 0; i < src.size(); ++i) {
@@ -96,10 +109,11 @@ struct BrainSession::Impl {
             }
             return vec;
         };
-        drift_print.mfcc = copyWithNoise(ref.mfcc);
-        drift_print.mel = copyWithNoise(ref.mel);
-        drift_print.spectral = copyWithNoise(ref.spectral);
-        drift_print.chroma = copyWithNoise(ref.chroma);
+        drift_print.print.mfcc = copyWithNoise(ref.mfcc);
+        drift_print.print.mel = copyWithNoise(ref.mel);
+        drift_print.print.spectral = copyWithNoise(ref.spectral);
+        drift_print.print.chroma = copyWithNoise(ref.chroma);
+        drift_print.normalised_print = drift_print.print;
     }
 
     [[nodiscard]] std::shared_ptr<port::ISearchStrategy> makeStrategy() const {
@@ -153,6 +167,9 @@ std::size_t BrainSession::getNumSynapses() const noexcept {
 // ── Search strategy ───────────────────────────────────────────────────────────
 
 void BrainSession::setSearchStrategy(const SearchStrategy strategy) const {
+    if (impl_->strategy == strategy) {
+        return;  // no-op — avoids resetting current_block_idx_ on every streaming block
+    }
     impl_->strategy = strategy;
     if (impl_->play_head.has_value()) {
         impl_->buildPlayHead();
@@ -184,6 +201,28 @@ void BrainSession::setSpectralWeight(const double val) noexcept {
 }
 void BrainSession::setNRatio(const double val) noexcept {
     impl_->search_params.n_ratio = val;
+}
+
+// ── Effects ───────────────────────────────────────────────────────────────────
+
+void BrainSession::addEffect(const EffectType type) {
+    if (type == EffectType::SpectralMorph && !impl_->spectral_morph) {
+        auto fft = std::make_shared<adapter::fft::PocketfftBackend>();
+        impl_->spectral_morph = std::make_unique<adapter::effects::SpectralMorph>(std::move(fft));
+    }
+}
+
+void BrainSession::removeEffect(const EffectType type) {
+    if (type == EffectType::SpectralMorph) {
+        impl_->spectral_morph.reset();
+        impl_->morph_feedback.clear();  // discard accumulated spectral state
+    }
+}
+
+void BrainSession::setEffectAmount(const EffectType type, const double amount) noexcept {
+    if (type == EffectType::SpectralMorph) {
+        impl_->spectral_morph_amount = amount;
+    }
 }
 
 // ── Clear ────────────────────────────────────────────────────────────────────
@@ -265,9 +304,11 @@ std::size_t BrainSession::advance(const double* samples, const std::size_t count
     }
     const std::vector<double> vec(samples, samples + count);
     const AudioPrint print = impl_->brain->analyser().analyse(vec, sample_rate);
-    const TargetAnalysis target{.print = print, .normalised_print = print};
+    const BlockAnalysis target{.print = print, .normalised_print = print};
     const std::size_t matched = impl_->play_head.value().advance(target, impl_->search_params);
     impl_->play_head.value().depleteUsages(impl_->search_params.usage_falloff);
+    impl_->prev_matched_idx = impl_->last_matched_idx;
+    impl_->last_matched_idx = matched;
     return matched;
 }
 
@@ -281,7 +322,7 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
 
     // Seed the drift fingerprint with noise on first call — every session starts
     // from a different random position in timbral space.
-    if (impl_->drift_print.mfcc.empty()) {
+    if (impl_->drift_print.print.mfcc.empty()) {
         impl_->initDriftFromNoise();
     }
 
@@ -292,9 +333,7 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
     infinite_params.usage_falloff = std::min(impl_->search_params.usage_falloff, 0.92);
 
     // Search: find the block most similar to the current target.
-    const TargetAnalysis target{.print = impl_->drift_print,
-                                .normalised_print = impl_->drift_print};
-    const std::size_t matched = impl_->play_head.value().advance(target, infinite_params);
+    const std::size_t matched = impl_->play_head.value().advance(impl_->drift_print, infinite_params);
     impl_->play_head.value().depleteUsages(infinite_params.usage_falloff);
 
     // The matched block becomes the next target — this traces a path through
@@ -302,7 +341,7 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
     // A tiny noise perturbation prevents the path from being fully deterministic.
     // If the matched block is silent (near-zero energy), jump to a fresh random
     // starting point rather than letting the path get trapped in silence.
-    const AudioPrint& mp = impl_->brain->blocks()[matched].print;
+    const AudioPrint& mp = impl_->brain->blocks()[matched].analysis.print;
     const double energy = [&] {
         double sum = 0.0;
         for (const double v : mp.mel) {
@@ -320,9 +359,10 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
                 dst[i] = src[i] + rng::randomDouble(-0.05, 0.05);
             }
         };
-        copyWithNoise(impl_->drift_print.mfcc, mp.mfcc);
-        copyWithNoise(impl_->drift_print.mel, mp.mel);
-        copyWithNoise(impl_->drift_print.spectral, mp.spectral);
+        copyWithNoise(impl_->drift_print.print.mfcc, mp.mfcc);
+        copyWithNoise(impl_->drift_print.print.mel, mp.mel);
+        copyWithNoise(impl_->drift_print.print.spectral, mp.spectral);
+        impl_->drift_print.normalised_print = impl_->drift_print.print;
     }
 
     // Safety net: if somehow stuck (tiny brain, usage params at 0), reinit from noise.
@@ -337,6 +377,8 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
         impl_->drift_last_idx = matched;
     }
 
+    impl_->prev_matched_idx = impl_->last_matched_idx;
+    impl_->last_matched_idx = matched;
     return matched;
 }
 
@@ -384,6 +426,27 @@ std::size_t BrainSession::getBlockSamples(const std::size_t index, double* out_b
     }
     const auto& src = ch[0];
     const std::size_t n = std::min(src.size(), max_count);
+
+    // Apply spectral morph if active — uses feedback cache as `prev` so the
+    // morph acts as a spectral IIR filter (reverb-like smearing at high amounts).
+    if (impl_->spectral_morph &&
+        index == impl_->last_matched_idx.value_or(index + 1)) {
+        const auto& prev_ch = (!impl_->morph_feedback.empty() && !impl_->morph_feedback[0].empty())
+                                  ? impl_->morph_feedback[0]
+                                  : src;
+        const std::size_t len = std::min({src.size(), prev_ch.size(), max_count});
+        const auto morphed =
+            impl_->spectral_morph->apply(prev_ch, src, impl_->spectral_morph_amount);
+        const std::size_t copy_n = std::min(morphed.size(), len);
+        // Update feedback cache for next block.
+        if (impl_->morph_feedback.empty()) {
+            impl_->morph_feedback.resize(1);
+        }
+        impl_->morph_feedback[0] = morphed;
+        std::copy_n(morphed.begin(), static_cast<std::ptrdiff_t>(copy_n), out_buffer);
+        return copy_n;
+    }
+
     std::copy_n(src.begin(), static_cast<std::ptrdiff_t>(n), out_buffer);
     return n;
 }
@@ -403,6 +466,31 @@ std::size_t BrainSession::getBlockSamplesInterleaved(const std::size_t index, do
     }
     const std::size_t frames = std::min(channels[0].size(), max_frames);
     const std::size_t nch = channels.size();
+
+    // Apply spectral morph per-channel using feedback cache as `prev`.
+    if (impl_->spectral_morph &&
+        index == impl_->last_matched_idx.value_or(index + 1)) {
+        // Ensure feedback cache has enough channels.
+        if (impl_->morph_feedback.size() < nch) {
+            impl_->morph_feedback.resize(nch);
+        }
+        for (std::size_t chi = 0; chi < nch; ++chi) {
+            const auto& curr_ch = channels[chi];
+            const auto& prev_ch = (!impl_->morph_feedback[chi].empty())
+                                      ? impl_->morph_feedback[chi]
+                                      : curr_ch;
+            const auto morphed = impl_->spectral_morph->apply(
+                prev_ch, curr_ch, impl_->spectral_morph_amount);
+            // Update feedback cache for next block.
+            impl_->morph_feedback[chi] = morphed;
+            const std::size_t copy_frames = std::min(morphed.size(), frames);
+            for (std::size_t frame = 0; frame < copy_frames; ++frame) {
+                out_buffer[(frame * nch) + chi] = morphed[frame];
+            }
+        }
+        return frames;
+    }
+
     for (std::size_t frame = 0; frame < frames; ++frame) {
         for (std::size_t chi = 0; chi < nch; ++chi) {
             out_buffer[(frame * nch) + chi] = channels[chi][frame];
@@ -438,11 +526,12 @@ std::string BrainSession::selfTest() const {
         return "BrainSession::selfTest: brain is empty.";
     }
 
-    const auto& first_fp = blocks[0].print.mfcc;
+    const auto& first_fp = blocks[0].analysis.print.mfcc;
     std::size_t best = 0;
     double best_dist = std::numeric_limits<double>::max();
     for (std::size_t i = 1; i < blocks.size(); ++i) {
-        const double dist = impl_->brain->analyser().distance(first_fp, blocks[i].print.mfcc);
+        const double dist =
+            impl_->brain->analyser().distance(first_fp, blocks[i].analysis.print.mfcc);
         if (dist < best_dist) {
             best_dist = dist;
             best = i;
@@ -493,7 +582,7 @@ std::string BrainSession::selfTest() const {
        << "  window        : " << win_name << "\n"
        << "  num_synapses  : " << impl_->num_synapses << "\n"
        << "  strategy      : " << strat_name << "\n"
-       << "  index built   : " << (impl_->brain->index() != nullptr ? "yes" : "no") << "\n"
+       << "  index built   : " << (impl_->brain->hasIndex() ? "yes" : "no") << "\n"
        << "  nearest to [0]: block " << best << " (dist=" << best_dist << ")\n";
     return ss.str();
 }

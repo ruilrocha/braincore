@@ -15,6 +15,14 @@ enum class SearchStrategy : int {
 };
 
 /**
+ * Available effect types for BrainSession's effect pipeline.
+ * Values are stable across versions — safe to store in Swift as Int32.
+ */
+enum class EffectType : int {
+    SpectralMorph = 0,  ///< Spectral morphing between consecutive blocks.
+};
+
+/**
  * High-level session facade — safe for Swift C++ interop.
  * All heavy C++ headers are confined to BrainSession.cpp via Pimpl.
  *
@@ -83,6 +91,15 @@ public:
     void setSpectralWeight(double v) noexcept;
     /** Raw-vs-normalised fingerprint blend [0=raw, 1=normalised]. */
     void setNRatio(double v) noexcept;
+
+    // ── Post-processing effects ────────────────────────────────────────
+
+    /** Add an effect to the pipeline (no-op if already present). */
+    void addEffect(EffectType type);
+    /** Remove an effect from the pipeline (no-op if absent). */
+    void removeEffect(EffectType type);
+    /** Set the mix amount for an effect [0.0, 1.0]. Applied on the next getBlockSamples call. */
+    void setEffectAmount(EffectType type, double amount) noexcept;
 
     /**
      * Advance one block using a target chunk (normal streaming mode).

@@ -1,4 +1,4 @@
-#include "domain/AudioPrint.h"
+#include "domain/BlockAnalysis.h"
 #include "domain/BlockConfig.h"
 #include "domain/Brain.h"
 #include "domain/Sound.h"
@@ -51,7 +51,7 @@ audio::Sound silentMono(int num_samples, int sample_rate = 44100) {
 TEST(BrainSegmentation, ExactMultipleProducesCorrectBlockCount) {
     // 4 blocks of 4 samples each, no overlap.
     constexpr audio::BlockConfig cfg{
-        .block_size = 4, .overlap = 0, .window = audio::WindowShape::Rectangle};
+        .block_size = 4, .overlap = 0.0, .window = audio::WindowShape::Rectangle};
     audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
     brain.addSound(silentMono(16));
     EXPECT_EQ(brain.size(), 4U);
@@ -60,7 +60,7 @@ TEST(BrainSegmentation, ExactMultipleProducesCorrectBlockCount) {
 TEST(BrainSegmentation, TrailingPartialBlockIsPadded) {
     // 17 samples / block_size 4 → 5 blocks (last padded with zeros).
     constexpr audio::BlockConfig cfg{
-        .block_size = 4, .overlap = 0, .window = audio::WindowShape::Rectangle};
+        .block_size = 4, .overlap = 0.0, .window = audio::WindowShape::Rectangle};
     audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
     brain.addSound(silentMono(17));
     EXPECT_EQ(brain.size(), 5U);
@@ -68,7 +68,7 @@ TEST(BrainSegmentation, TrailingPartialBlockIsPadded) {
 
 TEST(BrainSegmentation, SingleSampleProducesOneBlock) {
     constexpr audio::BlockConfig cfg{
-        .block_size = 4, .overlap = 0, .window = audio::WindowShape::Rectangle};
+        .block_size = 4, .overlap = 0.0, .window = audio::WindowShape::Rectangle};
     audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
     brain.addSound(silentMono(1));
     EXPECT_EQ(brain.size(), 1U);
@@ -76,16 +76,16 @@ TEST(BrainSegmentation, SingleSampleProducesOneBlock) {
 
 TEST(BrainSegmentation, EmptySoundAddsNoBlocks) {
     constexpr audio::BlockConfig cfg{
-        .block_size = 4, .overlap = 0, .window = audio::WindowShape::Rectangle};
+        .block_size = 4, .overlap = 0.0, .window = audio::WindowShape::Rectangle};
     audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
     brain.addSound(audio::Sound({}, 44100));
     EXPECT_TRUE(brain.empty());
 }
 
 TEST(BrainSegmentation, OverlapReducesBlockCount) {
-    // 8 samples, block_size=4, overlap=2 → step=2 → positions 0,2,4,6 → 4 blocks.
+    // 8 samples, block_size=4, overlap=0.5 → step=2 → positions 0,2,4,6 → 4 blocks.
     constexpr audio::BlockConfig cfg{
-        .block_size = 4, .overlap = 2, .window = audio::WindowShape::Rectangle};
+        .block_size = 4, .overlap = 0.5, .window = audio::WindowShape::Rectangle};
     audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
     brain.addSound(silentMono(8));
     EXPECT_EQ(brain.size(), 4U);
@@ -93,7 +93,7 @@ TEST(BrainSegmentation, OverlapReducesBlockCount) {
 
 TEST(BrainSegmentation, MultipleSoundsAccumulateBlocks) {
     constexpr audio::BlockConfig cfg{
-        .block_size = 4, .overlap = 0, .window = audio::WindowShape::Rectangle};
+        .block_size = 4, .overlap = 0.0, .window = audio::WindowShape::Rectangle};
     audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
     brain.addSound(silentMono(8));   // 2 blocks
     brain.addSound(silentMono(12));  // 3 blocks
@@ -102,7 +102,7 @@ TEST(BrainSegmentation, MultipleSoundsAccumulateBlocks) {
 
 TEST(BrainSegmentation, SourcesTrackedCorrectly) {
     constexpr audio::BlockConfig cfg{
-        .block_size = 4, .overlap = 0, .window = audio::WindowShape::Rectangle};
+        .block_size = 4, .overlap = 0.0, .window = audio::WindowShape::Rectangle};
     audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
     brain.addSound(silentMono(8), "a.wav");
     brain.addSound(silentMono(8), "b.wav");
