@@ -19,16 +19,60 @@ Inspired by [Samplebrain](https://thentrythis.org/projects/samplebrain).
 Requires: **C++23 compiler**, **Conan 2.x**, **CMake 3.24+**, **Ninja**.
 
 ```bash
-# Install dependencies
-conan install . --output-folder=cmake-build-debug/conan --build=missing
+# Install dependencies + generate presets
+conan install . --output-folder=cmake-build-debug/conan --build=missing -s build_type=Debug
+conan install . --output-folder=build --build=missing -s build_type=Release
 
-# Build
+# Build Debug
 cmake --preset conan-debug
 cmake --build --preset conan-debug
 
+# Build Release
+cmake --preset conan-release
+cmake --build --preset conan-release
+
 # Run tests
-./cmake-build-debug/conan/build/Debug/brainio-tests
+./cmake-build-debug/conan/build/Debug/braincore-tests
 ```
+
+Conan generates `CMakeUserPresets.json` at the repo root; after running both
+install commands above, both `conan-debug` and `conan-release` are available.
+
+### CLion setup
+
+- Enable **Use CMake Presets**.
+- Select `conan-debug` for development or `conan-release` for optimized builds.
+- Leave **CMake options** empty for preset profiles.
+
+---
+
+## Sanitizers
+
+Both sanitizers are available as manual GitHub Actions workflows (**Actions → ASan / MSan → Run workflow**) and can be run locally against the Debug build.
+
+### AddressSanitizer (ASan)
+
+Catches invalid reads/writes, use-after-free, heap/stack overflows, and leaks.
+
+```bash
+cmake --preset conan-debug -DENABLE_ASAN=ON
+cmake --build --preset conan-debug
+ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
+  ctest --test-dir cmake-build-debug/conan/build/Debug --output-on-failure
+```
+
+### MemorySanitizer (MSan)
+
+Catches reads of uninitialised memory (Linux/Clang only).
+
+```bash
+cmake --preset conan-debug -DENABLE_MSAN=ON
+cmake --build --preset conan-debug
+MSAN_OPTIONS=halt_on_error=1 \
+  ctest --test-dir cmake-build-debug/conan/build/Debug --output-on-failure
+```
+
+> **Note:** MSan requires all linked code to be instrumented. False positives may appear from uninstrumented third-party libraries.
 
 ---
 

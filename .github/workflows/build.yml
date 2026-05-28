@@ -1,0 +1,69 @@
+name: Build
+
+on:
+  workflow_call:
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # Build & test — uses Conan to install deps, then builds and runs tests.
+  # main branch → Release build; all other branches → Debug build.
+  # ──────────────────────────────────────────────────────────────────────
+  build:
+    name: build (${{ github.ref == 'refs/heads/main' && 'Release' || 'Debug' }})
+    runs-on: ubuntu-24.04
+
+    env:
+      BUILD_TYPE: ${{ github.ref == 'refs/heads/main' && 'Release' || 'Debug' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y ninja-build
+
+      - name: Install Conan
+        run: pip3 install conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Cache Conan packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.conan2
+          key: ${{ runner.os }}-conan-${{ env.BUILD_TYPE }}-${{ hashFiles('conandata.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-conan-${{ env.BUILD_TYPE }}-
+
+      - name: Conan install (Debug)
+        if: env.BUILD_TYPE == 'Debug'
+        run: conan install . --output-folder=cmake-build-debug/conan --build=missing -s build_type=Debug
+
+      - name: Conan install (Release)
+        if: env.BUILD_TYPE == 'Release'
+        run: conan install . --output-folder=build --build=missing -s build_type=Release
+
+      - name: Configure (Debug)
+        if: env.BUILD_TYPE == 'Debug'
+        run: cmake --preset conan-debug
+
+      - name: Configure (Release)
+        if: env.BUILD_TYPE == 'Release'
+        run: cmake --preset conan-release
+
+      - name: Build (Debug)
+        if: env.BUILD_TYPE == 'Debug'
+        run: cmake --build --preset conan-debug
+
+      - name: Build (Release)
+        if: env.BUILD_TYPE == 'Release'
+        run: cmake --build --preset conan-release
+
+      - name: Test (Debug)
+        if: env.BUILD_TYPE == 'Debug'
+        run: ctest --test-dir cmake-build-debug/conan/build/Debug --output-on-failure
+
+      - name: Test (Release)
+        if: env.BUILD_TYPE == 'Release'
+        run: ctest --test-dir build/build/Release --output-on-failure
