@@ -8,3 +8,4 @@ videos/
 CMakeUserPresets.json
 conan_provider.cmake
 .build
+.swiftpm

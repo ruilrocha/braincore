@@ -27,17 +27,16 @@ std::size_t SynapticSearch::search(const TargetAnalysis& target, const audio::Br
     const auto neighbours = idx->neighbors(current_block_index);
     if (neighbours.empty()) {
         // No precomputed neighbours for this block — fall back to full scan.
-        const auto [best_idx, best_score] =
-            SearchUtils::scoreCandidates(std::views::iota(std::size_t{0}, blocks.size()), target,
-                                         blocks, block_usages, params);
+        const auto [best_idx, best_score] = SearchUtils::scoreCandidates(
+            std::views::iota(std::size_t{0}, blocks.size()), target, blocks, block_usages, params);
         SearchUtils::applyUsage(block_usages, best_idx, params.usage_falloff);
         return SearchUtils::stickify(target, blocks, block_usages, best_idx, best_score,
                                      current_block_index, params);
     }
 
     const std::size_t limit = std::min(num_synapses_, neighbours.size());
-    const auto [best_idx, best_score] = SearchUtils::scoreCandidates(
-        neighbours.first(limit), target, blocks, block_usages, params);
+    const auto [best_idx, best_score] =
+        SearchUtils::scoreCandidates(neighbours.first(limit), target, blocks, block_usages, params);
 
     SearchUtils::applyUsage(block_usages, best_idx, params.usage_falloff);
     return SearchUtils::stickify(target, blocks, block_usages, best_idx, best_score,

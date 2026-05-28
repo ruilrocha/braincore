@@ -16,8 +16,8 @@ MfccAnalyser::MfccAnalyser(std::shared_ptr<port::IFft> fft, const int num_mfcc,
 // ── Filter bank cache ──────────────────────────────────────────────────────────
 
 const MelFilterBank& MfccAnalyser::filterBank(const int sample_rate,
-                                               const std::size_t block_size) const {
-    std::lock_guard lock(bank_mutex_);
+                                              const std::size_t block_size) const {
+    std::scoped_lock lock(bank_mutex_);
     if (!bank_cache_.has_value() || cached_sample_rate_ != sample_rate ||
         cached_block_size_ != block_size) {
         bank_cache_.emplace(static_cast<double>(sample_rate), block_size);
@@ -56,17 +56,24 @@ std::vector<double> chromaFromMag(const std::vector<double>& mag, std::size_t ff
 
     for (std::size_t k = 1; k < mag.size(); ++k) {
         const double freq = static_cast<double>(k) * df;
-        if (freq < 1.0) continue;
+        if (freq < 1.0) {
+            continue;
+        }
         const double midi = (12.0 * std::log2(freq / 440.0)) + 69.0;
         int pc = static_cast<int>(std::round(midi)) % 12;
-        if (pc < 0) pc += 12;
+        if (pc < 0)
+            pc += 12;
         chroma[static_cast<std::size_t>(pc)] += mag[k] * mag[k];
     }
 
     double sum = 0.0;
-    for (const double v : chroma) sum += v;
+    for (const double energy : chroma) {
+        sum += energy;
+    }
     if (sum > 1e-12) {
-        for (double& v : chroma) v /= sum;
+        for (double& energy : chroma) {
+            energy /= sum;
+        }
     }
     return chroma;
 }
@@ -118,7 +125,9 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
             const auto end = static_cast<std::size_t>(static_cast<double>(i + 1) * ratio);
             double sum = 0.0;
             const std::size_t count = end > start ? end - start : 1;
-            for (std::size_t j = start; j < end && j < mag.size(); ++j) sum += mag[j];
+            for (std::size_t j = start; j < end && j < mag.size(); ++j) {
+                sum += mag[j];
+            }
             fp.spectral[i] = sum / static_cast<double>(count);
         }
     }
@@ -128,7 +137,10 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
         std::size_t peak_bin = 1;
         double peak_val = mag[1];
         for (std::size_t k = 2; k < mag.size(); ++k) {
-            if (mag[k] > peak_val) { peak_val = mag[k]; peak_bin = k; }
+            if (mag[k] > peak_val) {
+                peak_val = mag[k];
+                peak_bin = k;
+            }
         }
         fp.dominant_freq = static_cast<double>(peak_bin) * static_cast<double>(sample_rate) /
                            static_cast<double>(block.size());

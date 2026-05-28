@@ -43,7 +43,8 @@ std::size_t MarkovChainSearch::search(const TargetAnalysis& target, const audio:
 
     for (std::size_t i = 0; i < limit; ++i) {
         const std::size_t block_idx = neighbours[i];
-        if (block_idx >= blocks.size()) continue;
+        if (block_idx >= blocks.size())
+            continue;
         const double usage = (block_idx < block_usages.size()) ? block_usages[block_idx] : 0.0;
         const double dist = SearchUtils::weightedDist(target, blocks[block_idx].print,
                                                       blocks[block_idx].normalised_print, params);
@@ -63,7 +64,8 @@ std::size_t MarkovChainSearch::search(const TargetAnalysis& target, const audio:
         SearchUtils::applyUsage(block_usages, current_block_index, params.usage_falloff);
         return current_block_index;
     }
-    for (auto& p : probs) p /= total;
+    for (auto& p : probs)
+        p /= total;
 
     // Sample from the distribution.
     const double r = rng::randomDouble();

@@ -1,8 +1,8 @@
 #pragma once
 
+#include "../../aquila/filter/MelFilterBank.h"
 #include "../../domain/port/IAnalyser.h"
 #include "../../domain/port/IFft.h"
-#include "../../aquila/filter/MelFilterBank.h"
 
 #include <memory>
 #include <mutex>

@@ -25,7 +25,8 @@ std::shared_ptr<Brain> Brain::rebuild(const std::vector<Block>& blocks,
 void Brain::rebuildActiveFlags() {
     block_active_.assign(blocks_.size(), false);
     for (const auto& src : sources_) {
-        if (!src.enabled) continue;
+        if (!src.enabled)
+            continue;
         const std::size_t end = std::min(src.end, blocks_.size());
         for (std::size_t i = src.start; i < end; ++i) {
             block_active_[i] = true;

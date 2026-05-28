@@ -61,7 +61,8 @@ inline double ssd(const std::vector<double>& a, const std::vector<double>& b, st
 /// Normalised SSD over the full (overlapping) length of two vectors.
 inline double ssdFull(const std::vector<double>& a, const std::vector<double>& b) {
     const std::size_t n = std::min(a.size(), b.size());
-    if (n == 0) return 0.0;
+    if (n == 0)
+        return 0.0;
     return ssd(a, b, 0, n);
 }
 
@@ -89,14 +90,17 @@ inline double weightedDistance(const AudioPrint& a, const AudioPrint& b,
     }
 
     double score = 0.0;
-    if (w_mfcc > 0.0) score += (w_mfcc / total_w) * ssdFull(a.mfcc, b.mfcc);
-    if (w_mel > 0.0) score += (w_mel / total_w) * ssdFull(a.mel, b.mel);
+    if (w_mfcc > 0.0)
+        score += (w_mfcc / total_w) * ssdFull(a.mfcc, b.mfcc);
+    if (w_mel > 0.0)
+        score += (w_mel / total_w) * ssdFull(a.mel, b.mel);
     if (w_spectral > 0.0) {
         const auto s0 = static_cast<std::size_t>(std::max(0, params.spectral_start));
         const auto s1 = static_cast<std::size_t>(std::max(0, params.spectral_end));
         score += (w_spectral / total_w) * ssd(a.spectral, b.spectral, s0, s1);
     }
-    if (w_chroma > 0.0) score += (w_chroma / total_w) * ssdFull(a.chroma, b.chroma);
+    if (w_chroma > 0.0)
+        score += (w_chroma / total_w) * ssdFull(a.chroma, b.chroma);
 
     return score;
 }
@@ -112,7 +116,7 @@ inline double weightedDistance(const AudioPrint& a, const AudioPrint& b,
  * Does NOT include the usage penalty — add that separately if needed.
  */
 inline double weightedDist(const TargetAnalysis& target, const AudioPrint& candidate_print,
-                            const AudioPrint& candidate_norm_print, const SearchParams& params) {
+                           const AudioPrint& candidate_norm_print, const SearchParams& params) {
     double d = detail::weightedDistance(target.print, candidate_print, params);
     if (params.n_ratio > 0.0) {
         const double nd =
@@ -188,7 +192,8 @@ inline std::pair<std::size_t, double> scoreCandidates(const IndexRange& indices,
     std::size_t best_idx = 0;
 
     for (const std::size_t i : indices) {
-        if (i >= blocks.size()) continue;
+        if (i >= blocks.size())
+            continue;
         const double usage = (i < block_usages.size()) ? block_usages[i] : 0.0;
         const double score =
             fullScore(target, blocks[i].print, blocks[i].normalised_print, usage, params);

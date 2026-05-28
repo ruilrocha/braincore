@@ -49,8 +49,8 @@ struct WindowFunction {
                         (0.08 * std::cos(4.0 * std::numbers::pi * nd / (num_samples - 1.0)));
                     break;
                 case WindowShape::Bartlett:
-                    w = 1.0 - ((2.0 * std::fabs(nd - ((num_samples - 1.0) / 2.0))) /
-                               (num_samples - 1.0));
+                    w = 1.0 -
+                        ((2.0 * std::fabs(nd - ((num_samples - 1.0) / 2.0))) / (num_samples - 1.0));
                     break;
                 case WindowShape::FlatTop:
                     w = 1.0 - (1.93 * std::cos(pi2 * nd / (num_samples - 1.0))) +
@@ -79,8 +79,7 @@ struct WindowFunction {
      * @p coeffs must be the same size as @p samples. If sizes differ, the
      * shorter length is used (safe but likely a programming error).
      */
-    static void applyCoefficients(std::vector<double>& samples,
-                                  const std::vector<double>& coeffs) {
+    static void applyCoefficients(std::vector<double>& samples, const std::vector<double>& coeffs) {
         const std::size_t n = std::min(samples.size(), coeffs.size());
         for (std::size_t i = 0; i < n; ++i) {
             samples[i] *= coeffs[i];
@@ -111,8 +110,10 @@ struct WindowFunction {
         double min = samples[0];
         double max = samples[0];
         for (const double s : samples) {
-            if (s < min) min = s;
-            if (s > max) max = s;
+            if (s < min)
+                min = s;
+            if (s > max)
+                max = s;
         }
 
         const double mid = min + ((max - min) * 0.5);

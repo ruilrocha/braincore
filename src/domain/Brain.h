@@ -156,7 +156,8 @@ private:
     BlockConfig config_;
     std::vector<Block> blocks_;
     std::vector<SourceSound> sources_;
-    std::vector<bool> block_active_;  ///< Precomputed: true iff blocks_[i] belongs to an enabled source.
+    std::vector<bool>
+        block_active_;  ///< Precomputed: true iff blocks_[i] belongs to an enabled source.
 
     std::optional<NearestNeighbourIndex> index_;
 
