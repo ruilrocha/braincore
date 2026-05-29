@@ -17,6 +17,7 @@
 #include "domain/constants.h"
 
 #include <algorithm>
+#include <atomic>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -38,8 +39,28 @@ struct BrainSession::Impl {
     // Search config (cheap — only rebuilds PlayHead)
     SearchStrategy strategy = SearchStrategy::VpTree;
 
-    // Live search parameters — used by advance() and advanceInfinite()
-    SearchParams search_params;
+    // Live search parameters — written from UI/main thread, read from the audio thread.
+    // Atomics with relaxed ordering: a stale-by-one-block read is acceptable for audio params.
+    std::atomic<double> a_stickyness{0.0};
+    std::atomic<double> a_usage_weight{0.0};
+    std::atomic<double> a_usage_falloff{1.0};
+    std::atomic<double> a_mfcc_weight{0.0};
+    std::atomic<double> a_mel_weight{1.0};
+    std::atomic<double> a_spectral_weight{0.0};
+    std::atomic<double> a_n_ratio{0.0};
+
+    /// Snapshot all realtime atomics into a SearchParams for one audio block.
+    [[nodiscard]] SearchParams snapshotParams() const noexcept {
+        SearchParams sp;
+        sp.stickyness = a_stickyness.load(std::memory_order_relaxed);
+        sp.usage_weight = a_usage_weight.load(std::memory_order_relaxed);
+        sp.usage_falloff = a_usage_falloff.load(std::memory_order_relaxed);
+        sp.mfcc_weight = a_mfcc_weight.load(std::memory_order_relaxed);
+        sp.mel_weight = a_mel_weight.load(std::memory_order_relaxed);
+        sp.spectral_weight = a_spectral_weight.load(std::memory_order_relaxed);
+        sp.n_ratio = a_n_ratio.load(std::memory_order_relaxed);
+        return sp;
+    }
 
     std::shared_ptr<Brain> brain;
     std::optional<PlayHead> play_head;
@@ -58,7 +79,7 @@ struct BrainSession::Impl {
 
     // Effect pipeline
     std::unique_ptr<adapter::effects::SpectralMorph> spectral_morph;
-    double spectral_morph_amount = 0.0;
+    std::atomic<double> a_spectral_morph_amount{0.0};
     std::optional<std::size_t> prev_matched_idx;  ///< Block index from the previous advance() call.
     std::optional<std::size_t>
         last_matched_idx;  ///< Block index from the most recent advance() call.
@@ -149,6 +170,20 @@ struct BrainSession::Impl {
         auto const_brain = std::const_pointer_cast<const Brain>(brain);
         play_head.emplace(std::move(const_brain), makeStrategy());
     }
+
+    /// Step size in samples — mirrors Brain::addSound's step calculation.
+    /// Both Brain::addSound and block_meta must use the same value.
+    [[nodiscard]] std::size_t stepSamples() const noexcept {
+        const auto bs = static_cast<std::size_t>(block_size);
+        if (overlap_ratio <= 0.0) {
+            return bs;
+        }
+        return std::max(std::size_t{1},
+                        static_cast<std::size_t>(static_cast<double>(bs) * (1.0 - overlap_ratio)));
+    }
+
+    /// Pre-allocated scratch for advance() — avoids heap allocation on the audio thread.
+    std::vector<double> advance_scratch;
 };
 
 // ── Construction ──────────────────────────────────────────────────────────────
@@ -160,28 +195,28 @@ BrainSession& BrainSession::operator=(BrainSession&&) noexcept = default;
 
 // ── Brain config ──────────────────────────────────────────────────────────────
 
-void BrainSession::setBlockSize(const int block_size) const noexcept {
+void BrainSession::setBlockSize(const int block_size) noexcept {
     impl_->block_size = block_size;
 }
 int BrainSession::getBlockSize() const noexcept {
     return impl_->block_size;
 }
 
-void BrainSession::setWindowShape(const WindowShape shape) const noexcept {
+void BrainSession::setWindowShape(const WindowShape shape) noexcept {
     impl_->window_shape = shape;
 }
 WindowShape BrainSession::getWindowShape() const noexcept {
     return impl_->window_shape;
 }
 
-void BrainSession::setOverlapRatio(const double ratio) const noexcept {
+void BrainSession::setOverlapRatio(const double ratio) noexcept {
     impl_->overlap_ratio = std::max(0.0, std::min(ratio, 0.9));
 }
 double BrainSession::getOverlapRatio() const noexcept {
     return impl_->overlap_ratio;
 }
 
-void BrainSession::setNumSynapses(const std::size_t n) const noexcept {
+void BrainSession::setNumSynapses(const std::size_t n) noexcept {
     impl_->num_synapses = n;
 }
 std::size_t BrainSession::getNumSynapses() const noexcept {
@@ -190,7 +225,7 @@ std::size_t BrainSession::getNumSynapses() const noexcept {
 
 // ── Search strategy ───────────────────────────────────────────────────────────
 
-void BrainSession::setSearchStrategy(const SearchStrategy strategy) const {
+void BrainSession::setSearchStrategy(const SearchStrategy strategy) {
     if (impl_->strategy == strategy) {
         return;  // no-op — avoids resetting current_block_idx_ on every streaming block
     }
@@ -206,25 +241,25 @@ SearchStrategy BrainSession::searchStrategy() const noexcept {
 // ── Search params ─────────────────────────────────────────────────────────────
 
 void BrainSession::setUsageWeight(const double val) noexcept {
-    impl_->search_params.usage_weight = val;
+    impl_->a_usage_weight.store(val, std::memory_order_relaxed);
 }
 void BrainSession::setUsageFalloff(const double val) noexcept {
-    impl_->search_params.usage_falloff = val;
+    impl_->a_usage_falloff.store(val, std::memory_order_relaxed);
 }
 void BrainSession::setStickyness(const double val) noexcept {
-    impl_->search_params.stickyness = val;
+    impl_->a_stickyness.store(val, std::memory_order_relaxed);
 }
 void BrainSession::setMfccWeight(const double val) noexcept {
-    impl_->search_params.mfcc_weight = val;
+    impl_->a_mfcc_weight.store(val, std::memory_order_relaxed);
 }
 void BrainSession::setMelWeight(const double val) noexcept {
-    impl_->search_params.mel_weight = val;
+    impl_->a_mel_weight.store(val, std::memory_order_relaxed);
 }
 void BrainSession::setSpectralWeight(const double val) noexcept {
-    impl_->search_params.spectral_weight = val;
+    impl_->a_spectral_weight.store(val, std::memory_order_relaxed);
 }
 void BrainSession::setNRatio(const double val) noexcept {
-    impl_->search_params.n_ratio = val;
+    impl_->a_n_ratio.store(val, std::memory_order_relaxed);
 }
 
 // ── Effects ───────────────────────────────────────────────────────────────────
@@ -245,13 +280,13 @@ void BrainSession::removeEffect(const EffectType type) {
 
 void BrainSession::setEffectAmount(const EffectType type, const double amount) noexcept {
     if (type == EffectType::SpectralMorph) {
-        impl_->spectral_morph_amount = amount;
+        impl_->a_spectral_morph_amount.store(amount, std::memory_order_relaxed);
     }
 }
 
 // ── Clear ────────────────────────────────────────────────────────────────────
 
-void BrainSession::clear() const noexcept {
+void BrainSession::clear() noexcept {
     impl_->clear();
 }
 
@@ -259,6 +294,9 @@ void BrainSession::clear() const noexcept {
 
 void BrainSession::addSamples(const double* samples, const std::size_t count, const int sample_rate,
                               const char* name) {
+    if (samples == nullptr || count == 0 || sample_rate <= 0) {
+        return;
+    }
     if (!impl_->brain) {
         impl_->resetBrain();
     }
@@ -269,9 +307,9 @@ void BrainSession::addSamples(const double* samples, const std::size_t count, co
     Sound sound({std::move(vec)}, sample_rate);
     impl_->brain->addSound(sound, label);
 
-    // Record per-block metadata for Swift video mapping
-    const auto bs = static_cast<std::size_t>(impl_->block_size);
-    const std::size_t step = bs;  // overlap=0 for now
+    // Record per-block metadata for Swift video mapping.
+    // Use the same step that Brain::addSound uses (respects overlap_ratio).
+    const std::size_t step = impl_->stepSamples();
     std::size_t pos = 0;
     for (std::size_t i = first_block; i < impl_->brain->size(); ++i, pos += step) {
         impl_->block_meta.push_back(
@@ -301,8 +339,7 @@ void BrainSession::addSamplesInterleaved(const double* samples, const std::size_
     Sound sound(std::move(ch_data), sample_rate);
     impl_->brain->addSound(sound, label);
 
-    const auto bs = static_cast<std::size_t>(impl_->block_size);
-    const std::size_t step = bs;
+    const std::size_t step = impl_->stepSamples();
     std::size_t pos = 0;
     for (std::size_t i = first_block; i < impl_->brain->size(); ++i, pos += step) {
         impl_->block_meta.push_back(
@@ -320,17 +357,19 @@ void BrainSession::buildIndex() {
 
 std::size_t BrainSession::advance(const double* samples, const std::size_t count,
                                   const int sample_rate) {
-    if (!impl_->brain) {
+    if (!impl_->brain || samples == nullptr || count == 0) {
         return 0;
     }
     if (!impl_->play_head.has_value()) {
         impl_->buildPlayHead();
     }
-    const std::vector<double> vec(samples, samples + count);
-    const AudioPrint print = impl_->brain->analyser().analyse(vec, sample_rate);
+    // Reuse scratch buffer to avoid heap allocation on every audio-thread call.
+    impl_->advance_scratch.assign(samples, samples + count);
+    const AudioPrint print = impl_->brain->analyser().analyse(impl_->advance_scratch, sample_rate);
     const BlockAnalysis target{.print = print, .normalised_print = print};
-    const std::size_t matched = impl_->play_head.value().advance(target, impl_->search_params);
-    impl_->play_head.value().depleteUsages(impl_->search_params.usage_falloff);
+    const SearchParams params = impl_->snapshotParams();
+    const std::size_t matched = impl_->play_head.value().advance(target, params);
+    impl_->play_head.value().depleteUsages(params.usage_falloff);
     impl_->prev_matched_idx = impl_->last_matched_idx;
     impl_->last_matched_idx = matched;
     if (impl_->ola_buffer && impl_->brain) {
@@ -358,9 +397,10 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
 
     // In infinite mode always penalise the selected block so it can't win again
     // immediately — this is the core mechanism that forces the path forward.
-    SearchParams infinite_params = impl_->search_params;
-    infinite_params.usage_weight = std::max(impl_->search_params.usage_weight, 0.002);
-    infinite_params.usage_falloff = std::min(impl_->search_params.usage_falloff, 0.92);
+    const SearchParams base_params = impl_->snapshotParams();
+    SearchParams infinite_params = base_params;
+    infinite_params.usage_weight = std::max(base_params.usage_weight, 0.002);
+    infinite_params.usage_falloff = std::min(base_params.usage_falloff, 0.92);
 
     // Search: find the block most similar to the current target.
     const std::size_t matched =
@@ -478,8 +518,8 @@ std::size_t BrainSession::getBlockSamples(const std::size_t index, double* out_b
                                   ? impl_->morph_feedback[0]
                                   : src;
         const std::size_t len = std::min({src.size(), prev_ch.size(), max_count});
-        const auto morphed =
-            impl_->spectral_morph->apply(prev_ch, src, impl_->spectral_morph_amount);
+        const auto morphed = impl_->spectral_morph->apply(
+            prev_ch, src, impl_->a_spectral_morph_amount.load(std::memory_order_relaxed));
         const std::size_t copy_n = std::min(morphed.size(), len);
         // Update feedback cache for next block.
         if (impl_->morph_feedback.empty()) {
@@ -528,8 +568,8 @@ std::size_t BrainSession::getBlockSamplesInterleaved(const std::size_t index, do
                 const auto& curr = impl_->ola_read_scratch[chi];
                 const auto& prev =
                     !impl_->morph_feedback[chi].empty() ? impl_->morph_feedback[chi] : curr;
-                const auto morphed =
-                    impl_->spectral_morph->apply(prev, curr, impl_->spectral_morph_amount);
+                const auto morphed = impl_->spectral_morph->apply(
+                    prev, curr, impl_->a_spectral_morph_amount.load(std::memory_order_relaxed));
                 impl_->morph_feedback[chi] = morphed;
                 const std::size_t f = std::min(morphed.size(), frames);
                 for (std::size_t i = 0; i < f; ++i) {
@@ -557,8 +597,8 @@ std::size_t BrainSession::getBlockSamplesInterleaved(const std::size_t index, do
             const auto& curr_ch = channels[chi];
             const auto& prev_ch =
                 !impl_->morph_feedback[chi].empty() ? impl_->morph_feedback[chi] : curr_ch;
-            const auto morphed =
-                impl_->spectral_morph->apply(prev_ch, curr_ch, impl_->spectral_morph_amount);
+            const auto morphed = impl_->spectral_morph->apply(
+                prev_ch, curr_ch, impl_->a_spectral_morph_amount.load(std::memory_order_relaxed));
             impl_->morph_feedback[chi] = morphed;
             const std::size_t f = std::min(morphed.size(), frames);
             for (std::size_t frame = 0; frame < f; ++frame) {

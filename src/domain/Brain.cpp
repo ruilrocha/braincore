@@ -114,7 +114,9 @@ void Brain::addSound(const Sound& sound, const std::string& name,
         block.channel_samples.resize(num_channels);
         for (int ch = 0; ch < num_channels; ++ch) {
             const auto& src_ch = sound.getChannel(ch);
-            const auto ch_available = std::min(block_size, src_ch.size() - i);
+            // Guard against channels shorter than ch0 (src_ch.size() - i would underflow).
+            const auto ch_available =
+                (src_ch.size() > i) ? std::min(block_size, src_ch.size() - i) : std::size_t{0};
             block.channel_samples[ch].assign(
                 src_ch.begin() + static_cast<std::ptrdiff_t>(i),
                 src_ch.begin() + static_cast<std::ptrdiff_t>(i + ch_available));
@@ -175,11 +177,11 @@ bool Brain::isBlockActive(const std::size_t index) const {
 // ── Index accessor delegators ──────────────────────────────────────────
 
 std::vector<std::size_t> Brain::kNearest(const std::vector<double>& fingerprint,
-                                         const std::size_t k) const {
+                                         const std::size_t k_val) const {
     if (!index_.has_value()) {
         throw std::runtime_error("Brain::kNearest: index not built — call buildIndex() first.");
     }
-    return index_->kNearest(fingerprint, k);
+    return index_->kNearest(fingerprint, k_val);
 }
 
 std::span<const std::size_t> Brain::neighbors(const std::size_t block_index) const {

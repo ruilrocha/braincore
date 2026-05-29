@@ -62,7 +62,7 @@ public:
 
     // ── Brain config (requires rebuild: clear + addSamples + buildIndex) ─────
 
-    void setBlockSize(int block_size) const noexcept;
+    void setBlockSize(int block_size) noexcept;
     [[nodiscard]] int getBlockSize() const noexcept;
 
     /**
@@ -72,7 +72,7 @@ public:
      * Default: 0.5.
      * Requires rebuild (clear + addSamples + buildIndex) to take effect.
      */
-    void setOverlapRatio(double ratio) const noexcept;
+    void setOverlapRatio(double ratio) noexcept;
     [[nodiscard]] double getOverlapRatio() const noexcept;
 
     /**
@@ -82,19 +82,19 @@ public:
      * Hann at 50% overlap gives perfect reconstruction (default).
      * Requires rebuild to take effect.
      */
-    void setWindowShape(WindowShape shape) const noexcept;
+    void setWindowShape(WindowShape shape) noexcept;
     [[nodiscard]] WindowShape getWindowShape() const noexcept;
 
     /** K nearest neighbours stored per block. Only used by Synaptic strategy. */
-    void setNumSynapses(std::size_t n) const noexcept;
+    void setNumSynapses(std::size_t n) noexcept;
     [[nodiscard]] std::size_t getNumSynapses() const noexcept;
 
     /** Clear all ingested sounds and reset the Brain, preserving config settings. */
-    void clear() const noexcept;
+    void clear() noexcept;
 
     // ── Search strategy (reprocess target only) ───────────────────────
 
-    void setSearchStrategy(SearchStrategy strategy) const;
+    void setSearchStrategy(SearchStrategy strategy);
     [[nodiscard]] SearchStrategy searchStrategy() const noexcept;
 
     // ── Ingestion ────────────────────────────────────────────────────
