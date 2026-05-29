@@ -122,4 +122,80 @@ TEST(OlaBuffer, StereoAccumulateProducesCorrectChannelCount) {
     EXPECT_EQ(out[1].size(), kBS / 2) << "Unexpected step size in channel 1";
 }
 
+TEST(OlaBuffer, HammingWindowProducesNonZeroOutput) {
+    // Any window with overlap > 0 should produce non-zero output for a non-zero input.
+    constexpr std::size_t kBS = 256;
+    OlaBuffer ola(kBS, 0.5, WindowShape::Hamming);
+    EXPECT_TRUE(ola.active());
+
+    const auto block = constantBlock(kBS, 1.0);
+    for (int i = 0; i < 4; ++i) {
+        ola.accumulate(block);
+    }
+
+    std::vector<std::vector<double>> out;
+    ola.read(out);
+    EXPECT_GT(meanAmplitude(out), 0.0) << "Hamming OLA output should be non-zero";
+}
+
+TEST(OlaBuffer, MultipleReadAccumulateCyclesAreConsistent) {
+    constexpr std::size_t kBS = 128;
+    OlaBuffer ola(kBS, 0.5, WindowShape::Hann);
+    const auto block = constantBlock(kBS, 1.0);
+
+    // Interleaved warm-up: reach true steady state.
+    std::vector<std::vector<double>> discard;
+    for (int i = 0; i < 8; ++i) {
+        ola.accumulate(block);
+        ola.read(discard);
+    }
+
+    // Two more interleaved cycles — both should be in the same steady-state range.
+    std::vector<std::vector<double>> out1, out2;
+    ola.accumulate(block);
+    ola.read(out1);
+    ola.accumulate(block);
+    ola.read(out2);
+
+    const double mean1 = meanAmplitude(out1);
+    const double mean2 = meanAmplitude(out2);
+    // Steady-state consecutive outputs should be very close (within 5%).
+    EXPECT_NEAR(mean1, mean2, mean1 * 0.05) << "Steady-state output should be consistent";
+}
+
+TEST(OlaBuffer, ThreeChannelProducesThreeChannelOutput) {
+    constexpr std::size_t kBS = 64;
+    OlaBuffer ola(kBS, 0.5, WindowShape::Hann);
+    const auto block = constantBlock(kBS, 0.5, 3);
+
+    for (int i = 0; i < 4; ++i) {
+        ola.accumulate(block);
+    }
+
+    std::vector<std::vector<double>> out;
+    ola.read(out);
+    ASSERT_EQ(out.size(), 3u);
+    for (const auto& ch : out) {
+        EXPECT_EQ(ch.size(), kBS / 2);
+    }
+}
+
+TEST(OlaBuffer, BufferHandlesWraparoundGracefully) {
+    // Feed many blocks to exercise the circular buffer wrap.
+    constexpr std::size_t kBS = 64;
+    OlaBuffer ola(kBS, 0.5, WindowShape::Hann);
+    const auto block = constantBlock(kBS, 0.5);
+
+    std::vector<std::vector<double>> out;
+    for (int i = 0; i < 32; ++i) {
+        ola.accumulate(block);
+        ola.read(out);
+        for (const auto& ch : out) {
+            for (const double v : ch) {
+                EXPECT_TRUE(std::isfinite(v)) << "Non-finite value after " << i << " iterations";
+            }
+        }
+    }
+}
+
 }  // namespace

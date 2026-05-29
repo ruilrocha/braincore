@@ -84,6 +84,11 @@ endif()
 option(ENABLE_MSAN "Build with MemorySanitizer (-fsanitize=memory)" OFF)
 
 if(ENABLE_MSAN)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR
+            "MemorySanitizer requires Clang (current compiler: ${CMAKE_CXX_COMPILER_ID}). "
+            "Set CC=clang CXX=clang++ before running conan profile detect and cmake.")
+    endif()
     message(STATUS "MemorySanitizer enabled")
     set(_msan_flags -fsanitize=memory -fno-omit-frame-pointer -fsanitize-memory-track-origins)
     target_compile_options(braincore-lib  PUBLIC  ${_msan_flags})

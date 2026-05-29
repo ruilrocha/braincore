@@ -113,3 +113,112 @@ TEST(BrainSegmentation, SourcesTrackedCorrectly) {
     EXPECT_EQ(brain.sources()[0].num_blocks, 2U);
     EXPECT_EQ(brain.sources()[1].num_blocks, 2U);
 }
+
+// ─── buildIndex() ─────────────────────────────────────────────────────────────
+
+TEST(BrainSegmentation, HasIndexFalseBeforeBuild) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
+    brain.addSound(silentMono(16));
+    EXPECT_FALSE(brain.hasIndex());
+}
+
+TEST(BrainSegmentation, HasIndexTrueAfterBuild) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
+    brain.addSound(silentMono(16));
+    brain.buildIndex(2);
+    EXPECT_TRUE(brain.hasIndex());
+}
+
+TEST(BrainSegmentation, KNearestThrowsWithoutIndex) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
+    brain.addSound(silentMono(16));
+    EXPECT_THROW((void)brain.kNearest({1.0, 0.0}, 1), std::runtime_error);
+}
+
+TEST(BrainSegmentation, KNearestReturnsResultsAfterBuild) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
+    brain.addSound(silentMono(16));  // 4 blocks
+    brain.buildIndex(2);
+    const auto nn = brain.kNearest({1.0, 0.0}, 2);
+    EXPECT_EQ(nn.size(), 2U);
+    for (const auto idx : nn) {
+        EXPECT_LT(idx, brain.size());
+    }
+}
+
+// ─── neighbors() ──────────────────────────────────────────────────────────────
+
+TEST(BrainSegmentation, NeighborsEmptySpanWithoutIndex) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
+    brain.addSound(silentMono(16));
+    EXPECT_TRUE(brain.neighbors(0).empty());
+}
+
+TEST(BrainSegmentation, NeighborsNonEmptyAfterBuild) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
+    brain.addSound(silentMono(16));  // 4 blocks
+    brain.buildIndex(3);
+    // Block 0 should have up to 3 neighbours (the other 3 blocks).
+    EXPECT_FALSE(brain.neighbors(0).empty());
+}
+
+TEST(BrainSegmentation, NeighborsOutOfRangeReturnsEmptySpan) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
+    brain.addSound(silentMono(16));  // 4 blocks
+    brain.buildIndex(2);
+    EXPECT_TRUE(brain.neighbors(999).empty());
+}
+
+// ─── activateSound() / isBlockActive() ───────────────────────────────────────
+
+TEST(BrainSegmentation, AllBlocksActiveByDefault) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
+    brain.addSound(silentMono(8), "a.wav");  // 2 blocks
+    for (std::size_t i = 0; i < brain.size(); ++i) {
+        EXPECT_TRUE(brain.isBlockActive(i));
+    }
+}
+
+TEST(BrainSegmentation, DeactivateSoundMarksItsBlocksInactive) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
+    brain.addSound(silentMono(8), "a.wav");  // blocks 0-1
+    brain.addSound(silentMono(8), "b.wav");  // blocks 2-3
+    brain.activateSound("a.wav", false);
+    EXPECT_FALSE(brain.isBlockActive(0));
+    EXPECT_FALSE(brain.isBlockActive(1));
+    EXPECT_TRUE(brain.isBlockActive(2));
+    EXPECT_TRUE(brain.isBlockActive(3));
+}
+
+TEST(BrainSegmentation, ReactivateSoundRestoresActiveBlocks) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
+    brain.addSound(silentMono(8), "a.wav");
+    brain.activateSound("a.wav", false);
+    EXPECT_FALSE(brain.isBlockActive(0));
+    brain.activateSound("a.wav", true);
+    EXPECT_TRUE(brain.isBlockActive(0));
+}
+
+// ─── rebuild() ────────────────────────────────────────────────────────────────
+
+TEST(BrainSegmentation, RebuildPreservesBlockCount) {
+    constexpr audio::BlockConfig cfg{.block_size = 4};
+    auto analyser = std::make_shared<StubAnalyser>();
+    audio::Brain original(analyser, cfg);
+    original.addSound(silentMono(16));  // 4 blocks
+
+    constexpr audio::BlockConfig new_cfg{.block_size = 8};
+    auto rebuilt = audio::Brain::rebuild(original.blocks(), analyser, new_cfg);
+    EXPECT_EQ(rebuilt->size(), original.size());
+    EXPECT_EQ(rebuilt->blockSize(), 8);
+}

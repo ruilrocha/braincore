@@ -7,6 +7,11 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────
   # MemorySanitizer — builds in Debug with -fsanitize=memory and runs the
   # full test suite. Detects reads of uninitialised memory.
+  #
+  # MSan is Clang-only; GCC does not support -fsanitize=memory.
+  # We install clang and export CC/CXX before conan profile detect so the
+  # entire toolchain (Conan profile → CMake toolchain → compiler) is Clang.
+  #
   # Note: MSan requires all linked code to be instrumented; false positives
   # may appear from uninstrumented third-party libraries.
   # ──────────────────────────────────────────────────────────────────────
@@ -14,26 +19,30 @@ jobs:
     name: MemorySanitizer
     runs-on: ubuntu-24.04
 
+    env:
+      CC: clang
+      CXX: clang++
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
       - name: Install system dependencies
-        run: sudo apt-get install -y ninja-build
+        run: sudo apt-get install -y ninja-build clang
 
       - name: Install Conan
         run: pip3 install conan
 
-      - name: Detect Conan profile
+      - name: Detect Conan profile (Clang)
         run: conan profile detect --force
 
       - name: Cache Conan packages
         uses: actions/cache@v5
         with:
           path: ~/.conan2
-          key: ${{ runner.os }}-conan-Debug-${{ hashFiles('conandata.yml') }}
+          key: ${{ runner.os }}-conan-clang-Debug-${{ hashFiles('conandata.yml') }}
           restore-keys: |
-            ${{ runner.os }}-conan-Debug-
+            ${{ runner.os }}-conan-clang-Debug-
 
       - name: Conan install
         run: conan install . --output-folder=cmake-build-debug/conan --build=missing -s build_type=Debug

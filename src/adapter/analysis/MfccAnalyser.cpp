@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 #include <stdexcept>
 #include <vector>
 
@@ -17,7 +18,17 @@ MfccAnalyser::MfccAnalyser(std::shared_ptr<port::IFft> fft, const int num_mfcc,
 
 const MelFilterBank& MfccAnalyser::filterBank(const int sample_rate,
                                               const std::size_t block_size) const {
-    std::scoped_lock lock(bank_mutex_);
+    // Fast path: shared lock allows concurrent reads without contention.
+    {
+        std::shared_lock read(bank_mutex_);
+        if (bank_cache_.has_value() && cached_sample_rate_ == sample_rate &&
+            cached_block_size_ == block_size) {
+            return *bank_cache_;
+        }
+    }
+    // Slow path: rebuild under exclusive lock (rare — only on first call or config change).
+    std::unique_lock write(bank_mutex_);
+    // Re-check after acquiring write lock (another thread may have just rebuilt).
     if (!bank_cache_.has_value() || cached_sample_rate_ != sample_rate ||
         cached_block_size_ != block_size) {
         bank_cache_.emplace(static_cast<double>(sample_rate), block_size);
@@ -61,8 +72,9 @@ std::vector<double> chromaFromMag(const std::vector<double>& mag, std::size_t ff
         }
         const double midi = (12.0 * std::log2(freq / 440.0)) + 69.0;
         int pc = static_cast<int>(std::round(midi)) % 12;
-        if (pc < 0)
+        if (pc < 0) {
             pc += 12;
+        }
         chroma[static_cast<std::size_t>(pc)] += mag[k] * mag[k];
     }
 
@@ -117,7 +129,7 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
         static_cast<std::size_t>(std::min(num_fft_bins_, static_cast<int>(mag.size())));
     fp.spectral.resize(target_bins);
     if (target_bins >= mag.size()) {
-        std::copy(mag.begin(), mag.end(), fp.spectral.begin());
+        std::ranges::copy(mag, fp.spectral.begin());
     } else {
         const double ratio = static_cast<double>(mag.size()) / static_cast<double>(target_bins);
         for (std::size_t i = 0; i < target_bins; ++i) {

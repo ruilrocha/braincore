@@ -5,8 +5,8 @@
 #include "../../domain/port/IFft.h"
 
 #include <memory>
-#include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <vector>
 
 namespace audio::adapter::analysis {
@@ -41,7 +41,9 @@ private:
     int num_fft_bins_;
 
     // Cached filter bank — rebuilt only when (sample_rate, block_size) changes.
-    mutable std::mutex bank_mutex_;
+    // shared_mutex: multiple audio threads can read the cache concurrently;
+    // the exclusive lock is only held during the rare rebuild.
+    mutable std::shared_mutex bank_mutex_;
     mutable int cached_sample_rate_ = 0;
     mutable std::size_t cached_block_size_ = 0;
     mutable std::optional<MelFilterBank> bank_cache_;

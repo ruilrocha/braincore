@@ -50,11 +50,17 @@ install commands above, both `conan-debug` and `conan-release` are available.
 
 Both sanitizers are available as manual GitHub Actions workflows (**Actions → ASan / MSan → Run workflow**) and can be run locally against the Debug build.
 
+Both workflows use **Clang** — ASan for better symbolisation, MSan because it is Clang-only.
+
 ### AddressSanitizer (ASan)
 
 Catches invalid reads/writes, use-after-free, heap/stack overflows, and leaks.
 
 ```bash
+# Ensure Clang is the active compiler (required for consistency with CI)
+export CC=clang CXX=clang++
+conan profile detect --force
+conan install . --output-folder=cmake-build-debug/conan --build=missing -s build_type=Debug
 cmake --preset conan-debug -DENABLE_ASAN=ON
 cmake --build --preset conan-debug
 ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
@@ -63,9 +69,13 @@ ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
 
 ### MemorySanitizer (MSan)
 
-Catches reads of uninitialised memory (Linux/Clang only).
+Catches reads of uninitialised memory. **Requires Clang** — GCC does not implement MSan.
 
 ```bash
+# Clang is mandatory for MSan
+export CC=clang CXX=clang++
+conan profile detect --force
+conan install . --output-folder=cmake-build-debug/conan --build=missing -s build_type=Debug
 cmake --preset conan-debug -DENABLE_MSAN=ON
 cmake --build --preset conan-debug
 MSAN_OPTIONS=halt_on_error=1 \

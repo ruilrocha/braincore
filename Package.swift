@@ -35,7 +35,6 @@ let package = Package(
             // (CMake builds use the Conan-installed copy instead.)
             cxxSettings: [
                 .headerSearchPath("../vendor/pocketfft"),
-                .unsafeFlags(["-std=c++2b"]),
             ]
         ),
     ],
