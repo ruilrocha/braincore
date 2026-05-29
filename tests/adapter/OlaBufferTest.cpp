@@ -14,13 +14,13 @@ using audio::adapter::effects::OlaBuffer;
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /// Make a single-channel block filled with a constant value.
-static std::vector<std::vector<double>> constantBlock(std::size_t block_size, double value,
-                                                      int channels = 1) {
-    return std::vector<std::vector<double>>(channels, std::vector<double>(block_size, value));
+std::vector<std::vector<double>> constantBlock(size_t block_size, double value,
+                                               std::size_t channels = 1) {
+    return {channels, std::vector(block_size, value)};
 }
 
 /// Compute the mean of all samples across all channels.
-static double meanAmplitude(const std::vector<std::vector<double>>& buf) {
+double meanAmplitude(const std::vector<std::vector<double>>& buf) {
     double sum = 0.0;
     std::size_t count = 0;
     for (const auto& ch : buf) {
@@ -37,13 +37,13 @@ static double meanAmplitude(const std::vector<std::vector<double>>& buf) {
 TEST(OlaBuffer, InactiveWhenOverlapIsZero) {
     OlaBuffer ola(4096, 0.0, WindowShape::Hann);
     EXPECT_FALSE(ola.active());
-    EXPECT_EQ(ola.stepSize(), 4096u);
+    EXPECT_EQ(ola.stepSize(), 4096U);
 }
 
 TEST(OlaBuffer, ActiveWhenOverlapIsHalfStep) {
     OlaBuffer ola(4096, 0.5, WindowShape::Hann);
     EXPECT_TRUE(ola.active());
-    EXPECT_EQ(ola.stepSize(), 2048u);
+    EXPECT_EQ(ola.stepSize(), 2048U);
 }
 
 TEST(OlaBuffer, AccumulateIsNoOpWhenInactive) {
@@ -58,7 +58,7 @@ TEST(OlaBuffer, ReadReturnsZeroWhenInactive) {
     OlaBuffer ola(16, 0.0, WindowShape::Hann);
     std::vector<std::vector<double>> out;
     const std::size_t n = ola.read(out);
-    EXPECT_EQ(n, 0u);
+    EXPECT_EQ(n, 0U);
 }
 
 // At 50 % overlap with a Hann window, N consecutive identical blocks should
@@ -95,7 +95,7 @@ TEST(OlaBuffer, ResetZerosBuffersAndCursors) {
     ola.accumulate(block);
     ola.accumulate(block);
 
-    ola.reset();
+    ola.resetBuffer();
 
     // After reset, reading should give ~zero.
     std::vector<std::vector<double>> out;
@@ -117,7 +117,7 @@ TEST(OlaBuffer, StereoAccumulateProducesCorrectChannelCount) {
     std::vector<std::vector<double>> out;
     ola.read(out);
 
-    ASSERT_EQ(out.size(), 2u) << "Expected 2 channels in OLA output";
+    ASSERT_EQ(out.size(), 2U) << "Expected 2 channels in OLA output";
     EXPECT_EQ(out[0].size(), kBS / 2) << "Unexpected step size in channel 0";
     EXPECT_EQ(out[1].size(), kBS / 2) << "Unexpected step size in channel 1";
 }
@@ -151,7 +151,8 @@ TEST(OlaBuffer, MultipleReadAccumulateCyclesAreConsistent) {
     }
 
     // Two more interleaved cycles — both should be in the same steady-state range.
-    std::vector<std::vector<double>> out1, out2;
+    std::vector<std::vector<double>> out1;
+    std::vector<std::vector<double>> out2;
     ola.accumulate(block);
     ola.read(out1);
     ola.accumulate(block);
@@ -174,7 +175,7 @@ TEST(OlaBuffer, ThreeChannelProducesThreeChannelOutput) {
 
     std::vector<std::vector<double>> out;
     ola.read(out);
-    ASSERT_EQ(out.size(), 3u);
+    ASSERT_EQ(out.size(), 3U);
     for (const auto& ch : out) {
         EXPECT_EQ(ch.size(), kBS / 2);
     }
