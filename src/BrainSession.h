@@ -8,7 +8,8 @@
 
 namespace audio {
 
-enum class SearchStrategy : int {
+enum class SearchStrategy : int {  // NOLINT(performance-enum-size) — `: int` stable for Swift
+                                   // interop
     Closest = 0,
     VpTree = 1,
     Synaptic = 2,
@@ -18,8 +19,8 @@ enum class SearchStrategy : int {
  * Available effect types for BrainSession's effect pipeline.
  * Values are stable across versions — safe to store in Swift as Int32.
  */
-enum class EffectType : int {
-    SpectralMorph = 0,  ///< Spectral morphing between consecutive blocks.
+enum class EffectType : int {  // NOLINT(performance-enum-size) — `: int` stable for Swift interop
+    SpectralMorph = 0,         ///< Spectral morphing between consecutive blocks.
 };
 
 /**
@@ -109,20 +110,20 @@ public:
     // ── Search params (live, take effect on next advance) ─────────────
 
     /** "Novelty" — re-use penalty. 0 = blocks can repeat freely, 1 = strongly avoid repeats. */
-    void setUsageWeight(double v) noexcept;
+    void setUsageWeight(double value) noexcept;
     /** "Boredom" — usage decay rate per step. 1.0 = no decay (blocks stay avoided), 0.0 = instant
      * reset. */
-    void setUsageFalloff(double v) noexcept;
+    void setUsageFalloff(double value) noexcept;
     /** Stickyness [0,1] — bias toward the next sequential block for temporal coherence. */
-    void setStickyness(double v) noexcept;
+    void setStickyness(double value) noexcept;
     /** MFCC timbral weight [0,1] for multi-feature distance. */
-    void setMfccWeight(double v) noexcept;
+    void setMfccWeight(double value) noexcept;
     /** Mel filter-bank envelope weight [0,1]. */
-    void setMelWeight(double v) noexcept;
+    void setMelWeight(double value) noexcept;
     /** FFT spectral magnitude weight [0,1]. */
-    void setSpectralWeight(double v) noexcept;
+    void setSpectralWeight(double value) noexcept;
     /** Raw-vs-normalised fingerprint blend [0=raw, 1=normalised]. */
-    void setNRatio(double v) noexcept;
+    void setNRatio(double value) noexcept;
 
     // ── Post-processing effects ────────────────────────────────────────
 
@@ -138,7 +139,7 @@ public:
      * Uses stored SearchParams; depletes usage each step.
      * @return Index of the matched source block.
      */
-    std::size_t advance(const double* samples, std::size_t count, int sample_rate);
+    [[nodiscard]] std::size_t advance(const double* samples, std::size_t count, int sample_rate);
 
     /**
      * Generate one block of infinite (target-free) audio.
@@ -149,7 +150,7 @@ public:
      *
      * @return Index of the matched source block.
      */
-    std::size_t advanceInfinite(int sample_rate);
+    [[nodiscard]] std::size_t advanceInfinite(int sample_rate);
 
     // ── Block data ────────────────────────────────────────────────────
 
@@ -168,16 +169,16 @@ public:
     [[nodiscard]] std::size_t stepSize() const noexcept;
     [[nodiscard]] int blockChannels(std::size_t index) const noexcept;
 
-    std::size_t getBlockSamples(std::size_t index, double* out_buffer,
-                                std::size_t max_count) const noexcept;
+    [[nodiscard]] std::size_t getBlockSamples(std::size_t index, double* out_buffer,
+                                              std::size_t max_count) const;
 
-    std::size_t getBlockSamplesInterleaved(std::size_t index, double* out_buffer,
-                                           std::size_t max_frames) const noexcept;
+    [[nodiscard]] std::size_t getBlockSamplesInterleaved(std::size_t index, double* out_buffer,
+                                                         std::size_t max_frames) const;
 
     // ── Block source metadata (for video mapping in Swift) ─────────────
 
     /** Source filename / label for block at @p index. Empty string if out of range. */
-    [[nodiscard]] std::string getBlockSourceName(std::size_t index) const noexcept;
+    [[nodiscard]] std::string getBlockSourceName(std::size_t index) const;
 
     /**
      * Time offset in seconds of block @p index within its source file.

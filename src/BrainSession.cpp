@@ -1,5 +1,11 @@
 #include "BrainSession.h"
 
+// NOLINTBEGIN(readability-make-member-function-const)
+// BrainSession uses the Pimpl idiom: all methods access state through a
+// unique_ptr<Impl>, so the pointer itself never changes — the compiler
+// considers every method "can be const". Suppressed here only; internal
+// domain classes are still checked.
+
 #include "adapter/analysis/MfccAnalyser.h"
 #include "adapter/effects/OlaBuffer.h"
 #include "adapter/effects/SpectralMorph.h"
@@ -130,7 +136,7 @@ struct BrainSession::Impl {
         last_matched_idx.reset();
         morph_feedback.clear();
         if (ola_buffer) {
-            ola_buffer->reset();
+            ola_buffer->resetBuffer();
         }
     }
 
@@ -363,13 +369,16 @@ std::size_t BrainSession::advance(const double* samples, const std::size_t count
     if (!impl_->play_head.has_value()) {
         impl_->buildPlayHead();
     }
+    if (!impl_->play_head.has_value()) {
+        return 0;
+    }
     // Reuse scratch buffer to avoid heap allocation on every audio-thread call.
     impl_->advance_scratch.assign(samples, samples + count);
     const AudioPrint print = impl_->brain->analyser().analyse(impl_->advance_scratch, sample_rate);
     const BlockAnalysis target{.print = print, .normalised_print = print};
     const SearchParams params = impl_->snapshotParams();
-    const std::size_t matched = impl_->play_head.value().advance(target, params);
-    impl_->play_head.value().depleteUsages(params.usage_falloff);
+    const std::size_t matched = impl_->play_head->advance(target, params);
+    impl_->play_head->depleteUsages(params.usage_falloff);
     impl_->prev_matched_idx = impl_->last_matched_idx;
     impl_->last_matched_idx = matched;
     if (impl_->ola_buffer && impl_->brain) {
@@ -403,9 +412,14 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
     infinite_params.usage_falloff = std::min(base_params.usage_falloff, 0.92);
 
     // Search: find the block most similar to the current target.
-    const std::size_t matched =
-        impl_->play_head.value().advance(impl_->drift_print, infinite_params);
-    impl_->play_head.value().depleteUsages(infinite_params.usage_falloff);
+    // Guard immediately before dereference — clang-tidy can't track has_value
+    // across opaque function calls like initDriftFromNoise().
+    if (!impl_->play_head.has_value()) {
+        return 0;
+    }
+    auto& head = *impl_->play_head;
+    const std::size_t matched = head.advance(impl_->drift_print, infinite_params);
+    head.depleteUsages(infinite_params.usage_falloff);
 
     // The matched block becomes the next target — this traces a path through
     // timbral space where each block leads toward its most similar neighbour.
@@ -415,8 +429,8 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
     const AudioPrint& mp = impl_->brain->blocks()[matched].analysis.print;
     const double energy = [&] {
         double sum = 0.0;
-        for (const double v : mp.mel) {
-            sum += v * v;
+        for (const double mel_val : mp.mel) {
+            sum += mel_val * mel_val;
         }
         return sum;
     }();
@@ -496,7 +510,7 @@ int BrainSession::blockChannels(const std::size_t index) const noexcept {
 }
 
 std::size_t BrainSession::getBlockSamples(const std::size_t index, double* out_buffer,
-                                          const std::size_t max_count) const noexcept {
+                                          const std::size_t max_count) const {
     if ((out_buffer == nullptr) || !impl_->brain) {
         return 0;
     }
@@ -509,7 +523,7 @@ std::size_t BrainSession::getBlockSamples(const std::size_t index, double* out_b
         return 0;
     }
     const auto& src = ch[0];
-    const std::size_t n = std::min(src.size(), max_count);
+    const std::size_t num_frames = std::min(src.size(), max_count);
 
     // Apply spectral morph if active — uses feedback cache as `prev` so the
     // morph acts as a spectral IIR filter (reverb-like smearing at high amounts).
@@ -530,12 +544,12 @@ std::size_t BrainSession::getBlockSamples(const std::size_t index, double* out_b
         return copy_n;
     }
 
-    std::copy_n(src.begin(), static_cast<std::ptrdiff_t>(n), out_buffer);
-    return n;
+    std::copy_n(src.begin(), static_cast<std::ptrdiff_t>(num_frames), out_buffer);
+    return num_frames;
 }
 
 std::size_t BrainSession::getBlockSamplesInterleaved(const std::size_t index, double* out_buffer,
-                                                     const std::size_t max_frames) const noexcept {
+                                                     const std::size_t max_frames) const {
     if ((out_buffer == nullptr) || !impl_->brain) {
         return 0;
     }
@@ -571,8 +585,8 @@ std::size_t BrainSession::getBlockSamplesInterleaved(const std::size_t index, do
                 const auto morphed = impl_->spectral_morph->apply(
                     prev, curr, impl_->a_spectral_morph_amount.load(std::memory_order_relaxed));
                 impl_->morph_feedback[chi] = morphed;
-                const std::size_t f = std::min(morphed.size(), frames);
-                for (std::size_t i = 0; i < f; ++i) {
+                const std::size_t num_frames = std::min(morphed.size(), frames);
+                for (std::size_t i = 0; i < num_frames; ++i) {
                     out_buffer[(i * nch) + chi] = morphed[i];
                 }
             }
@@ -600,8 +614,8 @@ std::size_t BrainSession::getBlockSamplesInterleaved(const std::size_t index, do
             const auto morphed = impl_->spectral_morph->apply(
                 prev_ch, curr_ch, impl_->a_spectral_morph_amount.load(std::memory_order_relaxed));
             impl_->morph_feedback[chi] = morphed;
-            const std::size_t f = std::min(morphed.size(), frames);
-            for (std::size_t frame = 0; frame < f; ++frame) {
+            const std::size_t num_frames = std::min(morphed.size(), frames);
+            for (std::size_t frame = 0; frame < num_frames; ++frame) {
                 out_buffer[(frame * nch) + chi] = morphed[frame];
             }
         }
@@ -618,7 +632,7 @@ std::size_t BrainSession::getBlockSamplesInterleaved(const std::size_t index, do
 
 // ── Block source metadata ─────────────────────────────────────────────────────
 
-std::string BrainSession::getBlockSourceName(const std::size_t index) const noexcept {
+std::string BrainSession::getBlockSourceName(const std::size_t index) const {
     if (index >= impl_->block_meta.size()) {
         return {};
     }
@@ -706,3 +720,4 @@ std::string BrainSession::selfTest() const {
 }
 
 }  // namespace audio
+// NOLINTEND(readability-make-member-function-const)

@@ -93,7 +93,7 @@ public:
     std::size_t read(std::vector<std::vector<double>>& out);
 
     /** Zero all accumulation buffers and reset read/write cursors. */
-    void reset();
+    void resetBuffer();
 
     /** Samples per advance step.  = block_size * (1 − overlap), min 1. */
     [[nodiscard]] std::size_t stepSize() const noexcept { return step_size_; }

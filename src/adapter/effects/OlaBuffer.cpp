@@ -69,7 +69,7 @@ std::size_t OlaBuffer::read(std::vector<std::vector<double>>& out) {
     return step_size_;
 }
 
-void OlaBuffer::reset() {
+void OlaBuffer::resetBuffer() {
     for (auto& ch : buffers_) {
         std::ranges::fill(ch, 0.0);
     }
