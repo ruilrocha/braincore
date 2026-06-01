@@ -23,9 +23,9 @@ namespace audio {
  */
 struct Block {
     // ── Audio data ─────────────────────────────────────────────────────
-    /// Per-channel audio samples (all channels, used for reconstruction).
+    /// Per-channel audio samples stored as float32 to halve memory vs double.
     /// channel_samples[0] is the mono reference used for fingerprinting.
-    std::vector<std::vector<double>> channel_samples;
+    std::vector<std::vector<float>> channel_samples;
 
     // ── Audio prints ───────────────────────────────────────────────────
     /// Complete fingerprint analysis for this block (raw + normalised).

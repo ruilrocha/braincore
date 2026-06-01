@@ -17,6 +17,8 @@ constexpr int kDefaultMelBankSize = 24;
 constexpr double kDefaultAlpha = 1.0;
 
 /// Default number of nearest-neighbour synapses per block in a SynapseGraph.
-constexpr std::size_t kDefaultNumSynapses = 1000;
+/// 50 neighbours is sufficient for SynapticSearch/MarkovChain graph walks while
+/// keeping the precomputed K-NN table small on memory-constrained devices (iPhone).
+constexpr std::size_t kDefaultNumSynapses = 50;
 
 }  // namespace audio

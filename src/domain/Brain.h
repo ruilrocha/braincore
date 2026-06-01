@@ -148,7 +148,7 @@ public:
      * Requires buildIndex() to have been called; throws std::runtime_error if
      * the index is absent.
      */
-    [[nodiscard]] std::vector<std::size_t> kNearest(const std::vector<double>& fingerprint,
+    [[nodiscard]] std::vector<std::size_t> kNearest(const std::vector<float>& fingerprint,
                                                     std::size_t k) const;
 
     /**

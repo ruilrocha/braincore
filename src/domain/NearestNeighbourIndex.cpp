@@ -8,7 +8,7 @@
 
 namespace audio {
 
-void NearestNeighbourIndex::build(std::vector<std::vector<double>> points, DistFn dist,
+void NearestNeighbourIndex::build(std::vector<std::vector<float>> points, DistFn dist,
                                   std::size_t k) {
     dist_ = std::move(dist);
     items_ = std::move(points);
@@ -36,7 +36,7 @@ void NearestNeighbourIndex::build(std::vector<std::vector<double>> points, DistF
     }
 }
 
-std::vector<std::size_t> NearestNeighbourIndex::kNearest(const std::vector<double>& query,
+std::vector<std::size_t> NearestNeighbourIndex::kNearest(const std::vector<float>& query,
                                                          std::size_t k) const {
     if (items_.empty() || root_ == kNull) {
         return {};
@@ -115,7 +115,7 @@ std::size_t NearestNeighbourIndex::buildNode(std::size_t begin, std::size_t end)
     return node_idx;
 }
 
-void NearestNeighbourIndex::searchNode(std::size_t node_idx, const std::vector<double>& query,
+void NearestNeighbourIndex::searchNode(std::size_t node_idx, const std::vector<float>& query,
                                        std::size_t k, Heap& heap, double& tau) const {
     if (node_idx == kNull) {
         return;

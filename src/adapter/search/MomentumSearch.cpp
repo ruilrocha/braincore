@@ -24,7 +24,8 @@ std::size_t MomentumSearch::search(const SearchContext& ctx) const {
             velocity_.assign(current_mfcc.size(), 0.0);
         }
         for (std::size_t i = 0; i < current_mfcc.size(); ++i) {
-            const double delta = current_mfcc[i] - prev_fp_[i];
+            const double delta =
+                static_cast<double>(current_mfcc[i]) - static_cast<double>(prev_fp_[i]);
             velocity_[i] = (velocity_[i] * decay) + (delta * (1.0 - decay));
         }
     } else {
@@ -34,13 +35,14 @@ std::size_t MomentumSearch::search(const SearchContext& ctx) const {
 
     // Build a blended MFCC search target: actual target + predicted position.
     const auto& target_mfcc = ctx.target.print.mfcc;
-    std::vector<double> blended_mfcc(target_mfcc.size());
+    std::vector<float> blended_mfcc(target_mfcc.size());
     for (std::size_t i = 0; i < target_mfcc.size(); ++i) {
         const double predicted =
             (i < current_mfcc.size())
-                ? current_mfcc[i] + ((i < velocity_.size()) ? velocity_[i] : 0.0)
-                : target_mfcc[i];
-        blended_mfcc[i] = (target_mfcc[i] * (1.0 - mom)) + (predicted * mom);
+                ? static_cast<double>(current_mfcc[i]) + (i < velocity_.size() ? velocity_[i] : 0.0)
+                : static_cast<double>(target_mfcc[i]);
+        blended_mfcc[i] = static_cast<float>((static_cast<double>(target_mfcc[i]) * (1.0 - mom)) +
+                                             (predicted * mom));
     }
 
     // Wrap blended MFCC into a BlockAnalysis (momentum only operates in MFCC space).

@@ -24,15 +24,15 @@ public:
     [[nodiscard]] audio::AudioPrint analyse(const std::vector<double>& /*b*/,
                                             int /*sr*/) const override {
         audio::AudioPrint p;
-        p.mfcc = {0.0};
-        p.spectral = {0.0};
+        p.mfcc = {0.0f};
+        p.spectral = {0.0f};
         return p;
     }
-    [[nodiscard]] double distance(const std::vector<double>& a,
-                                  const std::vector<double>& b) const override {
+    [[nodiscard]] double distance(const std::vector<float>& a,
+                                  const std::vector<float>& b) const override {
         double s = 0.0;
         for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) {
-            const double d = a[i] - b[i];
+            const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
             s += d * d;
         }
         return std::sqrt(s);
@@ -52,7 +52,7 @@ public:
 std::shared_ptr<const audio::Brain> makeBrain(int n_blocks = 4) {
     constexpr audio::BlockConfig cfg{.block_size = 4};
     auto brain = std::make_shared<audio::Brain>(std::make_shared<StubAnalyser>(), cfg);
-    brain->addSound(audio::Sound({audio::Channel(4 * n_blocks, 0.0)}, 44100));
+    brain->addSound(audio::Sound({audio::Channel(4 * n_blocks, 0.0f)}, 44100));
     return brain;
 }
 

@@ -119,17 +119,20 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
     // ── Primary: MFCC (via cached filter bank) ─────────────────────────
     const auto& bank = filterBank(sample_rate, block.size());
     const auto filter_output = bank.apply(mag);
-    fp.mfcc = fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));
+    const auto mfcc_d = fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));
+    fp.mfcc.assign(mfcc_d.begin(), mfcc_d.end());  // narrow double→float
 
     // ── Mel filter-bank log energies ───────────────────────────────────
-    fp.mel = filter_output;
+    fp.mel.assign(filter_output.begin(), filter_output.end());  // narrow double→float
 
     // ── Spectral: FFT magnitude bins ───────────────────────────────────
     const auto target_bins =
         static_cast<std::size_t>(std::min(num_fft_bins_, static_cast<int>(mag.size())));
     fp.spectral.resize(target_bins);
     if (target_bins >= mag.size()) {
-        std::ranges::copy(mag, fp.spectral.begin());
+        for (std::size_t i = 0; i < target_bins; ++i) {
+            fp.spectral[i] = static_cast<float>(mag[i]);
+        }
     } else {
         const double ratio = static_cast<double>(mag.size()) / static_cast<double>(target_bins);
         for (std::size_t i = 0; i < target_bins; ++i) {
@@ -140,7 +143,7 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
             for (std::size_t j = start; j < end && j < mag.size(); ++j) {
                 sum += mag[j];
             }
-            fp.spectral[i] = sum / static_cast<double>(count);
+            fp.spectral[i] = static_cast<float>(sum / static_cast<double>(count));
         }
     }
 
@@ -154,24 +157,26 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
                 peak_bin = k;
             }
         }
-        fp.dominant_freq = static_cast<double>(peak_bin) * static_cast<double>(sample_rate) /
-                           static_cast<double>(block.size());
+        fp.dominant_freq =
+            static_cast<float>(static_cast<double>(peak_bin) * static_cast<double>(sample_rate) /
+                               static_cast<double>(block.size()));
     }
 
     // ── Chroma (free — reuses mag already computed) ────────────────────
-    fp.chroma = chromaFromMag(mag, block.size(), sample_rate);
+    const auto chroma_d = chromaFromMag(mag, block.size(), sample_rate);
+    fp.chroma.assign(chroma_d.begin(), chroma_d.end());  // narrow double→float
 
     return fp;
 }
 
 // ── Distance ───────────────────────────────────────────────────────────
 
-double MfccAnalyser::distance(const std::vector<double>& fp_a,
-                              const std::vector<double>& fp_b) const {
+double MfccAnalyser::distance(const std::vector<float>& fp_a,
+                              const std::vector<float>& fp_b) const {
     double sum = 0.0;
     const std::size_t len = std::min(fp_a.size(), fp_b.size());
     for (std::size_t i = 0; i < len; ++i) {
-        const double diff = fp_a[i] - fp_b[i];
+        const double diff = static_cast<double>(fp_a[i]) - static_cast<double>(fp_b[i]);
         sum += diff * diff;
     }
     return std::sqrt(sum);

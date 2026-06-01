@@ -22,15 +22,16 @@ public:
     [[nodiscard]] audio::AudioPrint analyse(const std::vector<double>& b,
                                             const int sr) const override {
         audio::AudioPrint p;
-        p.mfcc = compute(b, sr);
+        const auto mfcc_d = compute(b, sr);
+        p.mfcc = std::vector<float>(mfcc_d.begin(), mfcc_d.end());
         p.spectral = p.mfcc;
         return p;
     }
-    [[nodiscard]] double distance(const std::vector<double>& a,
-                                  const std::vector<double>& b) const override {
+    [[nodiscard]] double distance(const std::vector<float>& a,
+                                  const std::vector<float>& b) const override {
         double s = 0.0;
         for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) {
-            const double d = a[i] - b[i];
+            const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
             s += d * d;
         }
         return std::sqrt(s);
@@ -46,7 +47,7 @@ std::shared_ptr<audio::Brain> makeBrain(int n_blocks) {
     const audio::BlockConfig cfg{.block_size = kBlockSize};
     auto brain = std::make_shared<audio::Brain>(std::make_shared<IdentityAnalyser>(), cfg);
     for (int i = 0; i < n_blocks; ++i) {
-        const audio::Channel ch(kBlockSize, static_cast<double>(i));
+        const audio::Channel ch(kBlockSize, static_cast<float>(i));
         brain->addSound(audio::Sound({ch}, 44100));
     }
     return brain;
