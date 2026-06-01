@@ -146,10 +146,10 @@ struct BrainSession::Impl {
         }
         const std::size_t seed_idx = rng::randomIndex(brain->blocks().size());
         const AudioPrint& ref = brain->blocks()[seed_idx].analysis.print;
-        auto copyWithNoise = [](const std::vector<double>& src) {
-            std::vector<double> vec(src.size());
+        auto copyWithNoise = [](const std::vector<float>& src) {
+            std::vector<float> vec(src.size());
             for (std::size_t i = 0; i < src.size(); ++i) {
-                vec[i] = src[i] + rng::randomDouble(-0.1, 0.1);
+                vec[i] = src[i] + static_cast<float>(rng::randomDouble(-0.1, 0.1));
             }
             return vec;
         };
@@ -190,6 +190,9 @@ struct BrainSession::Impl {
 
     /// Pre-allocated scratch for advance() — avoids heap allocation on the audio thread.
     std::vector<double> advance_scratch;
+    /// Pre-allocated float→double scratch for SpectralMorph input — avoids heap allocation
+    /// on the audio thread when widening float channel_samples to the double morph API.
+    std::vector<double> float_to_double_scratch;
 };
 
 // ── Construction ──────────────────────────────────────────────────────────────
@@ -309,7 +312,10 @@ void BrainSession::addSamples(const double* samples, const std::size_t count, co
     const std::string label = (name != nullptr) ? name : "";
     const std::size_t first_block = impl_->brain->size();
 
-    std::vector<double> vec(samples, samples + count);
+    Channel vec(count);
+    for (std::size_t k = 0; k < count; ++k) {
+        vec[k] = static_cast<float>(samples[k]);
+    }
     Sound sound({std::move(vec)}, sample_rate);
     impl_->brain->addSound(sound, label);
 
@@ -336,10 +342,11 @@ void BrainSession::addSamplesInterleaved(const double* samples, const std::size_
     const std::string label = (name != nullptr) ? name : "";
     const std::size_t first_block = impl_->brain->size();
 
-    std::vector<std::vector<double>> ch_data(channels, std::vector<double>(frame_count));
+    std::vector<Channel> ch_data(static_cast<std::size_t>(channels), Channel(frame_count));
     for (std::size_t frame = 0; frame < frame_count; ++frame) {
         for (int ch = 0; ch < channels; ++ch) {
-            ch_data[ch][frame] = samples[(frame * static_cast<std::size_t>(channels)) + ch];
+            ch_data[static_cast<std::size_t>(ch)][frame] =
+                static_cast<float>(samples[(frame * static_cast<std::size_t>(channels)) + ch]);
         }
     }
     Sound sound(std::move(ch_data), sample_rate);
@@ -378,7 +385,6 @@ std::size_t BrainSession::advance(const double* samples, const std::size_t count
     const BlockAnalysis target{.print = print, .normalised_print = print};
     const SearchParams params = impl_->snapshotParams();
     const std::size_t matched = impl_->play_head->advance(target, params);
-    impl_->play_head->depleteUsages(params.usage_falloff);
     impl_->prev_matched_idx = impl_->last_matched_idx;
     impl_->last_matched_idx = matched;
     if (impl_->ola_buffer && impl_->brain) {
@@ -419,7 +425,6 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
     }
     auto& head = *impl_->play_head;
     const std::size_t matched = head.advance(impl_->drift_print, infinite_params);
-    head.depleteUsages(infinite_params.usage_falloff);
 
     // The matched block becomes the next target — this traces a path through
     // timbral space where each block leads toward its most similar neighbour.
@@ -429,8 +434,8 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
     const AudioPrint& mp = impl_->brain->blocks()[matched].analysis.print;
     const double energy = [&] {
         double sum = 0.0;
-        for (const double mel_val : mp.mel) {
-            sum += mel_val * mel_val;
+        for (const float mel_val : mp.mel) {
+            sum += static_cast<double>(mel_val) * static_cast<double>(mel_val);
         }
         return sum;
     }();
@@ -438,10 +443,10 @@ std::size_t BrainSession::advanceInfinite(const int /*sample_rate*/) {
     if (energy < 1e-6) {
         impl_->initDriftFromNoise();
     } else {
-        auto copyWithNoise = [](std::vector<double>& dst, const std::vector<double>& src) {
+        auto copyWithNoise = [](std::vector<float>& dst, const std::vector<float>& src) {
             dst.resize(src.size());
             for (std::size_t i = 0; i < src.size(); ++i) {
-                dst[i] = src[i] + rng::randomDouble(-0.05, 0.05);
+                dst[i] = src[i] + static_cast<float>(rng::randomDouble(-0.05, 0.05));
             }
         };
         copyWithNoise(impl_->drift_print.print.mfcc, mp.mfcc);
@@ -528,12 +533,16 @@ std::size_t BrainSession::getBlockSamples(const std::size_t index, double* out_b
     // Apply spectral morph if active — uses feedback cache as `prev` so the
     // morph acts as a spectral IIR filter (reverb-like smearing at high amounts).
     if (impl_->spectral_morph && index == impl_->last_matched_idx.value_or(index + 1)) {
-        const auto& prev_ch = (!impl_->morph_feedback.empty() && !impl_->morph_feedback[0].empty())
-                                  ? impl_->morph_feedback[0]
-                                  : src;
-        const std::size_t len = std::min({src.size(), prev_ch.size(), max_count});
+        // Widen the float block to double for the SpectralMorph API.
+        auto& scratch = impl_->float_to_double_scratch;
+        scratch.assign(src.begin(), src.begin() + num_frames);
+        const std::vector<double>& prev_ch =
+            (!impl_->morph_feedback.empty() && !impl_->morph_feedback[0].empty())
+                ? impl_->morph_feedback[0]
+                : scratch;  // first block: prev == curr (identity morph)
+        const std::size_t len = std::min({scratch.size(), prev_ch.size(), max_count});
         const auto morphed = impl_->spectral_morph->apply(
-            prev_ch, src, impl_->a_spectral_morph_amount.load(std::memory_order_relaxed));
+            prev_ch, scratch, impl_->a_spectral_morph_amount.load(std::memory_order_relaxed));
         const std::size_t copy_n = std::min(morphed.size(), len);
         // Update feedback cache for next block.
         if (impl_->morph_feedback.empty()) {
@@ -544,6 +553,7 @@ std::size_t BrainSession::getBlockSamples(const std::size_t index, double* out_b
         return copy_n;
     }
 
+    // Widen float→double: copy_n from float* to double* performs implicit widening.
     std::copy_n(src.begin(), static_cast<std::ptrdiff_t>(num_frames), out_buffer);
     return num_frames;
 }
@@ -607,12 +617,15 @@ std::size_t BrainSession::getBlockSamplesInterleaved(const std::size_t index, do
         if (impl_->morph_feedback.size() < nch) {
             impl_->morph_feedback.resize(nch);
         }
+        auto& scratch = impl_->float_to_double_scratch;
         for (std::size_t chi = 0; chi < nch; ++chi) {
-            const auto& curr_ch = channels[chi];
-            const auto& prev_ch =
-                !impl_->morph_feedback[chi].empty() ? impl_->morph_feedback[chi] : curr_ch;
+            // Widen the float channel to double for SpectralMorph.
+            const auto& curr_ch_f = channels[chi];
+            scratch.assign(curr_ch_f.begin(), curr_ch_f.end());
+            const std::vector<double>& prev_ch =
+                !impl_->morph_feedback[chi].empty() ? impl_->morph_feedback[chi] : scratch;
             const auto morphed = impl_->spectral_morph->apply(
-                prev_ch, curr_ch, impl_->a_spectral_morph_amount.load(std::memory_order_relaxed));
+                prev_ch, scratch, impl_->a_spectral_morph_amount.load(std::memory_order_relaxed));
             impl_->morph_feedback[chi] = morphed;
             const std::size_t num_frames = std::min(morphed.size(), frames);
             for (std::size_t frame = 0; frame < num_frames; ++frame) {
@@ -622,6 +635,7 @@ std::size_t BrainSession::getBlockSamplesInterleaved(const std::size_t index, do
         return frames;
     }
 
+    // float→double: implicit widening in assignment.
     for (std::size_t frame = 0; frame < frames; ++frame) {
         for (std::size_t chi = 0; chi < nch; ++chi) {
             out_buffer[(frame * nch) + chi] = channels[chi][frame];

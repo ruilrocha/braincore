@@ -80,7 +80,7 @@ public:
      * @param channel_samples  Per-channel raw samples [ch][sample].  Each channel
      *                         must have at least block_size samples.
      */
-    void accumulate(const std::vector<std::vector<double>>& channel_samples);
+    void accumulate(const std::vector<std::vector<float>>& channel_samples);
 
     /**
      * Read step_size samples per channel from the circular buffer and zero the

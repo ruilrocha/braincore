@@ -14,9 +14,9 @@ using audio::adapter::effects::OlaBuffer;
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /// Make a single-channel block filled with a constant value.
-std::vector<std::vector<double>> constantBlock(size_t block_size, double value,
-                                               std::size_t channels = 1) {
-    return {channels, std::vector(block_size, value)};
+std::vector<std::vector<float>> constantBlock(size_t block_size, float value,
+                                              std::size_t channels = 1) {
+    return {channels, std::vector<float>(block_size, value)};
 }
 
 /// Compute the mean of all samples across all channels.
@@ -48,7 +48,7 @@ TEST(OlaBuffer, ActiveWhenOverlapIsHalfStep) {
 
 TEST(OlaBuffer, AccumulateIsNoOpWhenInactive) {
     OlaBuffer ola(16, 0.0, WindowShape::Hann);
-    const auto block = constantBlock(16, 1.0);
+    const auto block = constantBlock(16, 1.0f);
     // Should not crash; buffers not allocated.
     ola.accumulate(block);
     EXPECT_FALSE(ola.active());
@@ -67,7 +67,7 @@ TEST(OlaBuffer, ReadReturnsZeroWhenInactive) {
 // sum is 1.0 in the steady state but transitions from 0 near the start.
 TEST(OlaBuffer, HalfOverlapHannAmplitudeIsApproximatelyPreserved) {
     constexpr std::size_t kBS = 512;
-    constexpr double kInput = 1.0;
+    constexpr float kInput = 1.0f;
 
     OlaBuffer ola(kBS, 0.5, WindowShape::Hann);
     const auto block = constantBlock(kBS, kInput);
@@ -90,7 +90,7 @@ TEST(OlaBuffer, HalfOverlapHannAmplitudeIsApproximatelyPreserved) {
 TEST(OlaBuffer, ResetZerosBuffersAndCursors) {
     constexpr std::size_t kBS = 64;
     OlaBuffer ola(kBS, 0.5, WindowShape::Hann);
-    const auto block = constantBlock(kBS, 1.0);
+    const auto block = constantBlock(kBS, 1.0f);
 
     ola.accumulate(block);
     ola.accumulate(block);
@@ -108,7 +108,7 @@ TEST(OlaBuffer, ResetZerosBuffersAndCursors) {
 TEST(OlaBuffer, StereoAccumulateProducesCorrectChannelCount) {
     constexpr std::size_t kBS = 128;
     OlaBuffer ola(kBS, 0.5, WindowShape::Hann);
-    const auto block = constantBlock(kBS, 0.5, 2);  // 2 channels
+    const auto block = constantBlock(kBS, 0.5f, 2);  // 2 channels
 
     for (int i = 0; i < 4; ++i) {
         ola.accumulate(block);
@@ -128,7 +128,7 @@ TEST(OlaBuffer, HammingWindowProducesNonZeroOutput) {
     OlaBuffer ola(kBS, 0.5, WindowShape::Hamming);
     EXPECT_TRUE(ola.active());
 
-    const auto block = constantBlock(kBS, 1.0);
+    const auto block = constantBlock(kBS, 1.0f);
     for (int i = 0; i < 4; ++i) {
         ola.accumulate(block);
     }
@@ -141,7 +141,7 @@ TEST(OlaBuffer, HammingWindowProducesNonZeroOutput) {
 TEST(OlaBuffer, MultipleReadAccumulateCyclesAreConsistent) {
     constexpr std::size_t kBS = 128;
     OlaBuffer ola(kBS, 0.5, WindowShape::Hann);
-    const auto block = constantBlock(kBS, 1.0);
+    const auto block = constantBlock(kBS, 1.0f);
 
     // Interleaved warm-up: reach true steady state.
     std::vector<std::vector<double>> discard;
@@ -167,7 +167,7 @@ TEST(OlaBuffer, MultipleReadAccumulateCyclesAreConsistent) {
 TEST(OlaBuffer, ThreeChannelProducesThreeChannelOutput) {
     constexpr std::size_t kBS = 64;
     OlaBuffer ola(kBS, 0.5, WindowShape::Hann);
-    const auto block = constantBlock(kBS, 0.5, 3);
+    const auto block = constantBlock(kBS, 0.5f, 3);
 
     for (int i = 0; i < 4; ++i) {
         ola.accumulate(block);

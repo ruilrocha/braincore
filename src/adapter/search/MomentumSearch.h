@@ -30,8 +30,9 @@ public:
     [[nodiscard]] std::size_t search(const SearchContext& ctx) const override;
 
 private:
-    mutable std::vector<double> velocity_;
-    mutable std::vector<double> prev_fp_;
+    mutable std::vector<double> velocity_;  ///< Internal velocity (double for precision).
+    mutable std::vector<float>
+        prev_fp_;  ///< Previous MFCC fingerprint (float, matches AudioPrint).
 };
 
 }  // namespace audio::adapter::search

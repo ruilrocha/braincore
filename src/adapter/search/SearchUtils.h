@@ -44,7 +44,7 @@ inline void applyUsage(std::vector<double>& block_usages, const std::size_t sele
 namespace detail {
 
 /// Sum of squared differences over a range [start, end), normalised by range length.
-inline double ssd(const std::vector<double>& a, const std::vector<double>& b, std::size_t start,
+inline double ssd(const std::vector<float>& a, const std::vector<float>& b, std::size_t start,
                   std::size_t end) {
     const std::size_t lim = std::min({end, a.size(), b.size()});
     if (lim <= start) {
@@ -52,14 +52,14 @@ inline double ssd(const std::vector<double>& a, const std::vector<double>& b, st
     }
     double acc = 0.0;
     for (std::size_t i = start; i < lim; ++i) {
-        const double d = a[i] - b[i];
+        const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
         acc += d * d;
     }
     return acc / static_cast<double>(lim - start);
 }
 
 /// Normalised SSD over the full (overlapping) length of two vectors.
-inline double ssdFull(const std::vector<double>& a, const std::vector<double>& b) {
+inline double ssdFull(const std::vector<float>& a, const std::vector<float>& b) {
     const std::size_t n = std::min(a.size(), b.size());
     if (n == 0) {
         return 0.0;

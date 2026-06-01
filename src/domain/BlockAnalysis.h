@@ -26,11 +26,11 @@ namespace audio {
  * DC-removed, peak-scaled samples) — not as separate fields here.
  */
 struct AudioPrint {
-    std::vector<double> mfcc;      ///< MFCC coefficients (~12, timbral shape).
-    std::vector<double> mel;       ///< Mel filter-bank log energies (~24 bins).
-    std::vector<double> spectral;  ///< FFT magnitude bins (~100, spectral detail).
-    std::vector<double> chroma;    ///< Pitch-class profile (12 bins, L1-normalised).
-    double dominant_freq = 0.0;    ///< Dominant frequency (Hz, spectral peak).
+    std::vector<float> mfcc;      ///< MFCC coefficients (~12, timbral shape).
+    std::vector<float> mel;       ///< Mel filter-bank log energies (~24 bins).
+    std::vector<float> spectral;  ///< FFT magnitude bins (~100, spectral detail).
+    std::vector<float> chroma;    ///< Pitch-class profile (12 bins, L1-normalised).
+    float dominant_freq = 0.0F;   ///< Dominant frequency (Hz, spectral peak).
 };
 
 /**

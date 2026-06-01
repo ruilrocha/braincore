@@ -6,7 +6,7 @@
 
 namespace audio {
 
-using Channel = std::vector<double>;
+using Channel = std::vector<float>;
 
 /**
  * Immutable multi-channel audio container.

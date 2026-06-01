@@ -52,7 +52,7 @@ void Brain::buildIndex(const std::size_t num_synapses) {
         return analyser->distance(fingerprint_a, fingerprint_b);
     };
 
-    std::vector<std::vector<double>> fingerprints;
+    std::vector<std::vector<float>> fingerprints;
     fingerprints.reserve(num_blocks);
     for (const auto& block : blocks_) {
         fingerprints.push_back(block.analysis.print.mel);
@@ -120,21 +120,23 @@ void Brain::addSound(const Sound& sound, const std::string& name,
             block.channel_samples[ch].assign(
                 src_ch.begin() + static_cast<std::ptrdiff_t>(i),
                 src_ch.begin() + static_cast<std::ptrdiff_t>(i + ch_available));
-            block.channel_samples[ch].resize(block_size, 0.0);
+            block.channel_samples[ch].resize(block_size, 0.0f);
         }
 
         // channel_samples[0] is the raw mono reference (zero-padded if needed).
         const auto& raw_ch0 = block.channel_samples[0];
 
         // ── Apply precomputed window and analyse ───────────────────────
-        std::vector windowed(raw_ch0.begin(), raw_ch0.begin() + static_cast<long>(available));
+        // raw_ch0 is now float; widen to double for FFT precision.
+        std::vector<double> windowed(raw_ch0.begin(),
+                                     raw_ch0.begin() + static_cast<long>(available));
         windowed.resize(block_size, 0.0);
         WindowFunction::applyCoefficients(windowed, window_coefficients);
 
         block.analysis.print = analyser_->analyse(windowed, sample_rate);
 
         // ── Normalised fingerprints (amplitude-invariant) ──────────────
-        std::vector norm(raw_ch0.begin(), raw_ch0.begin() + static_cast<long>(available));
+        std::vector<double> norm(raw_ch0.begin(), raw_ch0.begin() + static_cast<long>(available));
         norm.resize(block_size, 0.0);
         WindowFunction::normalise(norm);
         WindowFunction::applyCoefficients(norm, window_coefficients);
@@ -176,7 +178,7 @@ bool Brain::isBlockActive(const std::size_t index) const {
 
 // ── Index accessor delegators ──────────────────────────────────────────
 
-std::vector<std::size_t> Brain::kNearest(const std::vector<double>& fingerprint,
+std::vector<std::size_t> Brain::kNearest(const std::vector<float>& fingerprint,
                                          const std::size_t k_val) const {
     if (!index_.has_value()) {
         throw std::runtime_error("Brain::kNearest: index not built — call buildIndex() first.");

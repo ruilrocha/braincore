@@ -32,8 +32,8 @@ public:
     [[nodiscard]] AudioPrint analyse(const std::vector<double>& block,
                                      int sample_rate) const override;
 
-    [[nodiscard]] double distance(const std::vector<double>& a,
-                                  const std::vector<double>& b) const override;
+    [[nodiscard]] double distance(const std::vector<float>& a,
+                                  const std::vector<float>& b) const override;
 
 private:
     std::shared_ptr<port::IFft> fft_;

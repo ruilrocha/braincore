@@ -17,7 +17,7 @@ OlaBuffer::OlaBuffer(const std::size_t block_size, const double overlap, const W
       window_coeffs_(overlap_ > 0.0 ? WindowFunction::makeCoefficients(block_size, window)
                                     : std::vector<double>{}) {}
 
-void OlaBuffer::accumulate(const std::vector<std::vector<double>>& channel_samples) {
+void OlaBuffer::accumulate(const std::vector<std::vector<float>>& channel_samples) {
     if (!active() || channel_samples.empty()) {
         return;
     }

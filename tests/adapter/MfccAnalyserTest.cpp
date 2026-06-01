@@ -91,7 +91,10 @@ TEST(MfccAnalyser, AnalyseMfccMatchesCompute) {
     const auto from_analyse = analyser->analyse(block, kSampleRate).mfcc;
     ASSERT_EQ(from_compute.size(), from_analyse.size());
     for (std::size_t i = 0; i < from_compute.size(); ++i) {
-        EXPECT_DOUBLE_EQ(from_compute[i], from_analyse[i]);
+        // analyse() narrows double→float on store; allow float quantization error (~1e-3 at large
+        // values).
+        EXPECT_NEAR(from_compute[i], static_cast<double>(from_analyse[i]),
+                    std::abs(from_compute[i]) * 1e-4 + 1e-4);
     }
 }
 
@@ -99,29 +102,37 @@ TEST(MfccAnalyser, AnalyseMfccMatchesCompute) {
 
 TEST(MfccAnalyser, DistanceSelfIsZero) {
     auto analyser = makeAnalyser();
-    const auto fp = analyser->compute(sineBlock(1024), kSampleRate);
+    const auto fp_d = analyser->compute(sineBlock(1024), kSampleRate);
+    const std::vector<float> fp(fp_d.begin(), fp_d.end());
     EXPECT_NEAR(analyser->distance(fp, fp), 0.0, 1e-12);
 }
 
 TEST(MfccAnalyser, DistanceIsSymmetric) {
     auto analyser = makeAnalyser();
-    const auto fa = analyser->compute(sineBlock(1024, 440.0), kSampleRate);
-    const auto fb = analyser->compute(sineBlock(1024, 880.0), kSampleRate);
+    const auto fa_d = analyser->compute(sineBlock(1024, 440.0), kSampleRate);
+    const auto fb_d = analyser->compute(sineBlock(1024, 880.0), kSampleRate);
+    const std::vector<float> fa(fa_d.begin(), fa_d.end());
+    const std::vector<float> fb(fb_d.begin(), fb_d.end());
     EXPECT_NEAR(analyser->distance(fa, fb), analyser->distance(fb, fa), 1e-12);
 }
 
 TEST(MfccAnalyser, DistanceIsNonNegative) {
     auto analyser = makeAnalyser();
-    const auto fa = analyser->compute(sineBlock(1024, 440.0), kSampleRate);
-    const auto fb = analyser->compute(sineBlock(1024, 220.0), kSampleRate);
+    const auto fa_d = analyser->compute(sineBlock(1024, 440.0), kSampleRate);
+    const auto fb_d = analyser->compute(sineBlock(1024, 220.0), kSampleRate);
+    const std::vector<float> fa(fa_d.begin(), fa_d.end());
+    const std::vector<float> fb(fb_d.begin(), fb_d.end());
     EXPECT_GE(analyser->distance(fa, fb), 0.0);
 }
 
 TEST(MfccAnalyser, CloserBlocksHaveSmallerDistance) {
     auto analyser = makeAnalyser();
     // 440 Hz and 442 Hz (almost identical) should be closer than 440 Hz and 2000 Hz.
-    const auto fa = analyser->compute(sineBlock(1024, 440.0), kSampleRate);
-    const auto fb = analyser->compute(sineBlock(1024, 442.0), kSampleRate);
-    const auto fc = analyser->compute(sineBlock(1024, 2000.0), kSampleRate);
+    const auto fa_d = analyser->compute(sineBlock(1024, 440.0), kSampleRate);
+    const auto fb_d = analyser->compute(sineBlock(1024, 442.0), kSampleRate);
+    const auto fc_d = analyser->compute(sineBlock(1024, 2000.0), kSampleRate);
+    const std::vector<float> fa(fa_d.begin(), fa_d.end());
+    const std::vector<float> fb(fb_d.begin(), fb_d.end());
+    const std::vector<float> fc(fc_d.begin(), fc_d.end());
     EXPECT_LT(analyser->distance(fa, fb), analyser->distance(fa, fc));
 }

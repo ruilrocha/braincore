@@ -22,17 +22,17 @@ public:
     [[nodiscard]] audio::AudioPrint analyse(const std::vector<double>& /*block*/,
                                             int /*sr*/) const override {
         audio::AudioPrint p;
-        p.mfcc = {1.0, 0.0};
-        p.spectral = {0.5};
-        p.dominant_freq = 440.0;
+        p.mfcc = {1.0f, 0.0f};
+        p.spectral = {0.5f};
+        p.dominant_freq = 440.0f;
         return p;
     }
 
-    [[nodiscard]] double distance(const std::vector<double>& a,
-                                  const std::vector<double>& b) const override {
+    [[nodiscard]] double distance(const std::vector<float>& a,
+                                  const std::vector<float>& b) const override {
         double sum = 0.0;
         for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) {
-            const double d = a[i] - b[i];
+            const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
             sum += d * d;
         }
         return std::sqrt(sum);
@@ -41,7 +41,7 @@ public:
 
 // Helper: create a mono Sound of N silence samples at 44100 Hz.
 audio::Sound silentMono(int num_samples, int sample_rate = 44100) {
-    return audio::Sound({audio::Channel(num_samples, 0.0)}, sample_rate);
+    return audio::Sound({audio::Channel(num_samples, 0.0f)}, sample_rate);
 }
 
 }  // namespace
@@ -135,7 +135,7 @@ TEST(BrainSegmentation, KNearestThrowsWithoutIndex) {
     constexpr audio::BlockConfig cfg{.block_size = 4};
     audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
     brain.addSound(silentMono(16));
-    EXPECT_THROW((void)brain.kNearest({1.0, 0.0}, 1), std::runtime_error);
+    EXPECT_THROW((void)brain.kNearest({1.0f, 0.0f}, 1), std::runtime_error);
 }
 
 TEST(BrainSegmentation, KNearestReturnsResultsAfterBuild) {
@@ -143,7 +143,7 @@ TEST(BrainSegmentation, KNearestReturnsResultsAfterBuild) {
     audio::Brain brain(std::make_shared<StubAnalyser>(), cfg);
     brain.addSound(silentMono(16));  // 4 blocks
     brain.buildIndex(2);
-    const auto nn = brain.kNearest({1.0, 0.0}, 2);
+    const auto nn = brain.kNearest({1.0f, 0.0f}, 2);
     EXPECT_EQ(nn.size(), 2U);
     for (const auto idx : nn) {
         EXPECT_LT(idx, brain.size());

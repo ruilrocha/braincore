@@ -39,7 +39,7 @@ namespace audio {
  */
 class NearestNeighbourIndex {
 public:
-    using DistFn = std::function<double(const std::vector<double>&, const std::vector<double>&)>;
+    using DistFn = std::function<double(const std::vector<float>&, const std::vector<float>&)>;
 
     NearestNeighbourIndex() = default;
 
@@ -56,7 +56,7 @@ public:
      *                triangle inequality).
      * @param k       Number of nearest neighbours to precompute per point.
      */
-    void build(std::vector<std::vector<double>> points, DistFn dist, std::size_t k);
+    void build(std::vector<std::vector<float>> points, DistFn dist, std::size_t k);
 
     [[nodiscard]] bool empty() const { return items_.empty(); }
     [[nodiscard]] std::size_t size() const { return items_.size(); }
@@ -67,7 +67,7 @@ public:
      * Results are sorted ascending by distance.  If the index contains fewer
      * than @p k points, all are returned.
      */
-    [[nodiscard]] std::vector<std::size_t> kNearest(const std::vector<double>& query,
+    [[nodiscard]] std::vector<std::size_t> kNearest(const std::vector<float>& query,
                                                     std::size_t k) const;
 
     /**
@@ -91,7 +91,7 @@ private:
     using Heap = std::priority_queue<std::pair<double, std::size_t>>;
 
     DistFn dist_;
-    std::vector<std::vector<double>> items_;
+    std::vector<std::vector<float>> items_;
     std::vector<std::size_t> indices_;  ///< Scratch reordered during build.
     std::vector<Node> nodes_;
     std::size_t root_ = kNull;
@@ -100,7 +100,7 @@ private:
     std::vector<std::vector<std::size_t>> precomputed_;  ///< K-NN per point.
 
     std::size_t buildNode(std::size_t begin, std::size_t end);
-    void searchNode(std::size_t node_idx, const std::vector<double>& query, std::size_t k,
+    void searchNode(std::size_t node_idx, const std::vector<float>& query, std::size_t k,
                     Heap& heap, double& tau) const;
 };
 

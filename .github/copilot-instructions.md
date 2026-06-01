@@ -185,19 +185,19 @@ main.cpp                                ← Composition Root (wires adapters →
 ### `src/domain/` — Domain Core
 | File                       | Description |
 |----------------------------|-------------|
-| `Sound.h / .cpp`           | Immutable multi-channel audio container. |
-| `Block.h`                  | Value type: samples, channel_samples, fingerprint, secondary_fingerprint, normalised variants, dominant_freq, usage, synapses, video (optional VideoSegment). |
-| `Brain.h / .cpp`           | Core aggregate. Constructor: `Brain(analyser, search, BlockConfig)`. Methods: `addSound()`, `findBestMatch()`, `buildSynapses()`, `jiggle()`, `depleteUsage()`, `activateSound()`, `isBlockActive()`. |
+| `Sound.h / .cpp`           | Immutable multi-channel audio container. `Channel = vector<float>`. |
+| `Block.h`                  | Value type: `channel_samples: vector<vector<float>>`, fingerprint, normalised variants, dominant_freq, usage, synapses, video (optional VideoSegment). |
+| `Brain.h / .cpp`           | Core aggregate. Constructor: `Brain(analyser, BlockConfig)`. Methods: `addSound()`, `findBestMatch()`, `buildSynapses()`, `buildIndex()`, `kNearest()`, `jiggle()`, `depleteUsage()`, `activateSound()`, `isBlockActive()`. |
 | `Command.h`                | Value object: `std::variant<StartCommand, StopCommand, RecordCommand, RebuildCommand>`. Used by UI mode to send lifecycle actions from the controller to the main event loop. |
-| `AudioPrint.h`             | Value object: `primary`, `secondary`, `normalised_primary`, `normalised_secondary`, `dominant_freq`. |
+| `AudioPrint.h`             | Value object: `mfcc`, `mel`, `spectral`, `chroma` (`vector<float>`), `dominant_freq` (`float`). All fingerprint fields are `float` for memory efficiency. |
 | `BlockConfig.h`            | Value object: `block_size`, `overlap`, `window` (WindowShape enum). |
 | `WindowFunction.h`         | Pure-math utility: `apply()` (7 window shapes), `normalise()` (DC-remove + peak-scale). |
-| `SearchParams.h`           | All UI-controllable parameters — see SearchParams section below. |
+| `SearchParams.h`           | All UI-controllable parameters — see SearchParams section below. Also defines `kUsageFactor = 1000.0`. |
 | `Random.h`                 | Thread-safe random utilities (`rng::randomDouble()`, `rng::randomIndex(n)`) using `std::mt19937`. Replaces all `std::rand()` usage. |
-| `constants.h`              | `kDefaultBlockSize` (4096), `kDefaultNumMfcc` (12), `kDefaultMelBankSize` (24), `kDefaultAlpha` (1.0). |
+| `constants.h`              | `kDefaultBlockSize` (4096), `kDefaultNumMfcc` (12), `kDefaultMelBankSize` (24), `kDefaultAlpha` (1.0), `kDefaultNumSynapses` (50). |
 | `VideoFrame.h`             | RGB24 decoded video frame: `width`, `height`, `pixels`, `timestamp_seconds`. `VideoFrame::black(w,h)` creates a zeroed frame for audio-only blocks. |
 | `VideoSegment.h`           | `VideoSegment` — `source_path`, `offset_seconds`, `duration_seconds`. Stored on Block when sourced from video. `VideoMetadata` — associates a loaded audio track with its originating video file. |
-| `port/IAnalyser.h`         | Port: `compute(block, sr)` → primary fingerprint; `analyse(block, sr)` → full Fingerprints bundle; `distance(a, b)` → double. |
+| `port/IAnalyser.h`         | Port: `compute(block, sr)` → `vector<double>` primary fingerprint; `analyse(block, sr)` → full `AudioPrint`; `distance(a, b)` takes `vector<float>` → double. |
 | `port/ISearchStrategy.h`   | Port: `search(target_fp, blocks, analyser, params, current_idx)` → index. |
 | `port/ISoundFileGateway.h` | Port: `loadSound(path)`, `saveSound(path, sound)`. |
 | `port/IAudioOutput.h`      | Port: `open()`, `write()`, `close()` — real-time audio playback. |
@@ -308,10 +308,14 @@ All parameters are designed to be bound to UI sliders/knobs:
 3. **Generic IAnalyser port** — The port exposes `compute()`, `analyse()`, and
    `distance()` without naming any specific technique (MFCC, FFT).  Concrete
    adapters decide what primary/secondary fingerprints represent.
-4. **Fingerprints bundle** — `analyse()` returns a `Fingerprints` struct with
-   primary, secondary, and dominant_freq.  The Brain computes both raw and
-   normalised variants and stores them on the Block.
-5. **BlockConfig for source and target** — Source (brain) and target can have
+   `compute()` returns `vector<double>`; `distance()` takes `vector<float>` (matching stored fingerprint type).
+4. **AudioPrint fields are `float`** — All fingerprint vectors (`mfcc`, `mel`, `spectral`, `chroma`)
+   and `dominant_freq` are `float` for ~50% memory reduction vs `double`. `analyse()` narrows
+   double→float on store; internal DSP computation stays double for precision.
+5. **Audio samples are `float`** — `Sound::Channel = vector<float>` and
+   `Block::channel_samples: vector<vector<float>>`. ~50% RAM reduction vs double.
+   OlaBuffer internal accumulation stays double to prevent drift.
+6. **BlockConfig for source and target** — Source (brain) and target can have
    independent block sizes, overlaps, and window shapes.
 6. **WindowFunction** — Seven shapes (Rectangle, Hamming, Hann, Blackman,
    Bartlett, FlatTop, Gaussian) applied before fingerprinting. Pure domain math.
@@ -321,7 +325,10 @@ All parameters are designed to be bound to UI sliders/knobs:
 8. **SearchUtils** — Shared adapter utilities eliminate code duplication across
    search strategies (stickify, applyUsage, fullScore with blended distance).
 9. **SearchParams** — Single value object bundles all UI-controllable parameters.
-10. **Usage tracking** — "novelty" (usage_weight) and "boredom" (usage_falloff).
+10. **Usage tracking** — "novelty" (`usage_weight`) and "boredom" (`usage_falloff`).
+    Each search strategy calls `SearchUtils::applyUsage()` which depletes all counters
+    by `usage_falloff` then increments the selected block by `kUsageFactor = 1000`.
+    `BrainSession` does NOT call `depleteUsages()` separately (that caused a double-decay bug).
 11. **EffectHelpers** — Shared effect functions (granularScatter, applyStutter,
     applyEnvelope) used by both SoundProcessor and StreamProcessor.
 12. **Granular post-processing** — Hann-enveloped micro-grains with scatter,
@@ -410,3 +417,6 @@ All parameters are designed to be bound to UI sliders/knobs:
 - **Use `#pragma once` for all new headers.**
 - **Keep the IAnalyser port generic — no analysis-technique-specific methods.**
 - **Keep IVideoSource / IVideoOutput generic** — no FFmpeg-specific types in the port.
+- **Audio sample type is `float`** — `Sound::Channel` and `Block::channel_samples` use `vector<float>`. Never add `vector<double>` audio sample storage.
+- **Fingerprint type is `float`** — All `AudioPrint` fields are `vector<float>`. `IAnalyser::distance()` takes `vector<float>`. `compute()` still returns `vector<double>` for internal DSP precision; narrow to float when storing in `AudioPrint`.
+- **Usage tracking is single-site** — `SearchUtils::applyUsage()` (called inside each strategy) is the only place that depletes usage counters. Do NOT call `depleteUsages()` in `BrainSession` or elsewhere.
