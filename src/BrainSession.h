@@ -1,27 +1,13 @@
 #pragma once
 
 #include "domain/WindowShape.h"
+#include "engine/BrainEngineTypes.h"
 
 #include <cstddef>
 #include <memory>
 #include <string>
 
 namespace audio {
-
-enum class SearchStrategy : int {  // NOLINT(performance-enum-size) — `: int` stable for Swift
-                                   // interop
-    Closest = 0,
-    VpTree = 1,
-    Synaptic = 2,
-};
-
-/**
- * Available effect types for BrainSession's effect pipeline.
- * Values are stable across versions — safe to store in Swift as Int32.
- */
-enum class EffectType : int {  // NOLINT(performance-enum-size) — `: int` stable for Swift interop
-    SpectralMorph = 0,         ///< Spectral morphing between consecutive blocks.
-};
 
 /**
  * High-level session facade — safe for Swift C++ interop.
@@ -186,8 +172,6 @@ public:
      * Returns -1.0 if out of range.
      */
     [[nodiscard]] double getBlockTimeOffset(std::size_t index) const noexcept;
-
-    [[nodiscard]] std::string selfTest() const;
 
 private:
     struct Impl;

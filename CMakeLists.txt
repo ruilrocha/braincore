@@ -19,6 +19,10 @@ file(GLOB_RECURSE AQUILA_SOURCES "src/aquila/*.cpp")
 
 add_library(braincore-lib STATIC
     src/BrainSession.cpp
+    src/engine/BrainEngine.cpp
+    src/engine/InfiniteDriftState.cpp
+    src/engine/BlockEffectChain.cpp
+    src/engine/OutputPipeline.cpp
     src/domain/Brain.cpp
     src/domain/NearestNeighbourIndex.cpp
     src/domain/PlayHead.cpp
