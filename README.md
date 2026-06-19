@@ -150,10 +150,10 @@ See [docs/architecture.md](docs/architecture.md) for the full hexagonal architec
 
 All managed via Conan:
 
-| Library | Purpose |
-|---------|---------|
-| [PocketFFT](https://gitlab.mpcdf.mpg.de/mtr/pocketfft) | FFT and DCT |
-| Aquila (in-tree, `src/aquila/`) | Mel filter bank |
+| Library                                                | Purpose         |
+|--------------------------------------------------------|-----------------|
+| [PocketFFT](https://gitlab.mpcdf.mpg.de/mtr/pocketfft) | FFT and DCT     |
+| Aquila (in-tree, `src/aquila/`)                        | Mel filter bank |
 
 ---
 

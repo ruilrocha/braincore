@@ -62,11 +62,7 @@ print("Block size : \(bs) samples")
 print("Step size  : \(step) samples  (= blockSize × (1 − overlap))")
 print("Overlap    : \(session.getOverlapRatio() * 100)%  → OLA crossfade active\n")
 
-// 6. Run the built-in self-test.
-let report = String(session.selfTest())
-print(report)
-
-// 7. Advance the playhead with a target block.
+// 6. Advance the playhead with a target block.
 //    Target chunk must be `step` samples (= stepSize()) — NOT blockSize() — when OLA is active.
 let targetBlock = (0..<Int(step)).map { i in
     sin(2.0 * Double.pi * 440.0 * Double(i) / Double(sampleRate))
