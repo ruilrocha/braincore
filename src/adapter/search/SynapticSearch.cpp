@@ -20,23 +20,26 @@ std::size_t SynapticSearch::search(const SearchContext& ctx) const {
 
     const auto& blocks = ctx.brain.blocks();
 
+    const auto& current_mfcc = blocks[ctx.current_block_index].analysis.print.mfcc;
+    const BlockAnalysis effective = momentum_state_.blend(ctx.target, current_mfcc, ctx.params);
+
     const auto neighbours = ctx.brain.neighbors(ctx.current_block_index);
     if (neighbours.empty()) {
         // No precomputed neighbours for this block — fall back to full scan.
         const auto [best_idx, best_score] =
-            SearchUtils::scoreCandidates(std::views::iota(std::size_t{0}, blocks.size()),
-                                         ctx.target, blocks, ctx.block_usages, ctx.params);
+            SearchUtils::scoreCandidates(std::views::iota(std::size_t{0}, blocks.size()), effective,
+                                         blocks, ctx.block_usages, ctx.params);
         SearchUtils::applyUsage(ctx.block_usages, best_idx, ctx.params.usage_falloff);
-        return SearchUtils::stickify(ctx.target, blocks, ctx.block_usages, best_idx, best_score,
+        return SearchUtils::stickify(effective, blocks, ctx.block_usages, best_idx, best_score,
                                      ctx.current_block_index, ctx.params);
     }
 
     const std::size_t limit = std::min(num_synapses_, neighbours.size());
     const auto [best_idx, best_score] = SearchUtils::scoreCandidates(
-        neighbours.first(limit), ctx.target, blocks, ctx.block_usages, ctx.params);
+        neighbours.first(limit), effective, blocks, ctx.block_usages, ctx.params);
 
     SearchUtils::applyUsage(ctx.block_usages, best_idx, ctx.params.usage_falloff);
-    return SearchUtils::stickify(ctx.target, blocks, ctx.block_usages, best_idx, best_score,
+    return SearchUtils::stickify(effective, blocks, ctx.block_usages, best_idx, best_score,
                                  ctx.current_block_index, ctx.params);
 }
 

@@ -91,6 +91,12 @@ void BrainSession::setSpectralWeight(const double val) noexcept {
 void BrainSession::setNRatio(const double val) noexcept {
     impl_->engine.setNRatio(val);
 }
+void BrainSession::setMomentum(const double val) noexcept {
+    impl_->engine.setMomentum(val);
+}
+void BrainSession::setMomentumDecay(const double val) noexcept {
+    impl_->engine.setMomentumDecay(val);
+}
 
 // ── Effects ───────────────────────────────────────────────────────────────────
 

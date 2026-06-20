@@ -1,4 +1,4 @@
-#include "adapter/search/MomentumSearch.h"
+#include "adapter/search/ClosestSearch.h"
 #include "domain/Block.h"
 #include "domain/Brain.h"
 #include "domain/SearchContext.h"
@@ -55,11 +55,11 @@ std::shared_ptr<audio::Brain> makeBrain(int n_blocks) {
 
 }  // namespace
 
-// ─── MomentumSearch ───────────────────────────────────────────────────────────
+// ─── ClosestSearch with momentum ─────────────────────────────────────────────
 
-TEST(MomentumSearch, ReturnsValidIndex) {
+TEST(ClosestSearchMomentum, ReturnsValidIndex) {
     auto brain = makeBrain(5);
-    audio::adapter::search::MomentumSearch search;
+    audio::adapter::search::ClosestSearch search;
     audio::SearchParams params;
     params.stickyness = 0.0;
     params.usage_weight = 0.0;
@@ -69,12 +69,12 @@ TEST(MomentumSearch, ReturnsValidIndex) {
     EXPECT_LT(search.search(ctx), brain->size());
 }
 
-TEST(MomentumSearch, ZeroMomentumBehavesLikeClosestSearch) {
+TEST(ClosestSearchMomentum, ZeroMomentumBehavesLikeClosestSearch) {
     // With momentum=0 the velocity term is multiplied by 0, so the blended target
     // equals the actual target fingerprint exactly. The result must be the block whose
     // fingerprint is identical to the target (distance = 0).
     auto brain = makeBrain(8);
-    audio::adapter::search::MomentumSearch search;
+    audio::adapter::search::ClosestSearch search;
     audio::SearchParams params;
     params.momentum = 0.0;
     params.stickyness = 0.0;
@@ -90,7 +90,7 @@ TEST(MomentumSearch, ZeroMomentumBehavesLikeClosestSearch) {
     }
 }
 
-TEST(MomentumSearch, HighMomentumIgnoresTargetOnFirstCall) {
+TEST(ClosestSearchMomentum, HighMomentumIgnoresTargetOnFirstCall) {
     // On the very first call the internal velocity is 0, so:
     //   blended_mfcc = target * (1-1) + (current + 0) * 1 = current_block.mfcc
     // → search scores all blocks against the CURRENT block's fingerprint, not the target.
@@ -107,14 +107,14 @@ TEST(MomentumSearch, HighMomentumIgnoresTargetOnFirstCall) {
 
     {
         // Zero momentum: picks closest to target (block 9 itself, distance = 0).
-        audio::adapter::search::MomentumSearch s;
+        audio::adapter::search::ClosestSearch s;
         params.momentum = 0.0;
         audio::SearchContext ctx{*brain, target, params, 0, usages};
         EXPECT_EQ(s.search(ctx), 9u) << "momentum=0 must pick the target block (distance 0)";
     }
     {
         // Full momentum: blended = current = block 0 → picks block 0 (distance 0).
-        audio::adapter::search::MomentumSearch s;
+        audio::adapter::search::ClosestSearch s;
         params.momentum = 1.0;
         audio::SearchContext ctx{*brain, target, params, 0, usages};
         EXPECT_EQ(s.search(ctx), 0u)
@@ -122,7 +122,7 @@ TEST(MomentumSearch, HighMomentumIgnoresTargetOnFirstCall) {
     }
 }
 
-TEST(MomentumSearch, HighMomentumOvershoots) {
+TEST(ClosestSearchMomentum, HighMomentumOvershoots) {
     // After a step that moves from block 0 to block 5, the velocity points in the
     // direction 0→5. On the next call with the same target (block 5), high momentum
     // blends in the velocity → the predicted position overshoots past 5. The result
@@ -138,7 +138,7 @@ TEST(MomentumSearch, HighMomentumOvershoots) {
     const auto& target = brain->blocks()[5].analysis;
     std::vector<double> usages(brain->size(), 0.0);
 
-    audio::adapter::search::MomentumSearch search;
+    audio::adapter::search::ClosestSearch search;
 
     // Call 1: current=0, no velocity yet → returns 0 (full momentum, no target pull).
     audio::SearchContext ctx1{*brain, target, params, 0, usages};
@@ -155,9 +155,9 @@ TEST(MomentumSearch, HighMomentumOvershoots) {
     EXPECT_LT(r2, brain->size());
 }
 
-TEST(MomentumSearch, MultipleCallsRemainInBounds) {
+TEST(ClosestSearchMomentum, MultipleCallsRemainInBounds) {
     auto brain = makeBrain(8);
-    audio::adapter::search::MomentumSearch search;
+    audio::adapter::search::ClosestSearch search;
     audio::SearchParams params;
     params.momentum = 0.8;
     params.momentum_decay = 0.9;
@@ -174,9 +174,9 @@ TEST(MomentumSearch, MultipleCallsRemainInBounds) {
     }
 }
 
-TEST(MomentumSearch, ResultsRemainInBoundsWithHighMomentum) {
+TEST(ClosestSearchMomentum, ResultsRemainInBoundsWithHighMomentum) {
     auto brain = makeBrain(10);
-    audio::adapter::search::MomentumSearch search;
+    audio::adapter::search::ClosestSearch search;
     audio::SearchParams params;
     params.momentum = 1.0;
     params.momentum_decay = 0.5;

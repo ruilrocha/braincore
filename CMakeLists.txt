@@ -33,7 +33,6 @@ add_library(braincore-lib STATIC
     src/adapter/search/SynapticSearch.cpp
     src/adapter/search/VpTreeSearch.cpp
     src/adapter/search/MarkovChainSearch.cpp
-    src/adapter/search/MomentumSearch.cpp
     src/adapter/effects/SpectralMorph.cpp
     src/adapter/effects/EffectHelpers.cpp
     src/adapter/effects/OlaBuffer.cpp
