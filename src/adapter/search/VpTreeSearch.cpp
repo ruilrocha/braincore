@@ -20,8 +20,8 @@ std::size_t VpTreeSearch::search(const SearchContext& ctx) const {
     const auto& current_mfcc = blocks[ctx.current_block_index].analysis.print.mfcc;
     const BlockAnalysis effective = momentum_state_.blend(ctx.target, current_mfcc, ctx.params);
 
-    // O(log N) candidate retrieval using the (possibly momentum-blended) MFCC.
-    const auto candidates = ctx.brain.kNearest(effective.print.mfcc, num_candidates_);
+    // O(log N) candidate retrieval using mel (matches the index build feature).
+    const auto candidates = ctx.brain.kNearest(effective.print.mel, num_candidates_);
     if (candidates.empty()) {
         return 0;
     }
