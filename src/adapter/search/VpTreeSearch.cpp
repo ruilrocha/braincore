@@ -17,8 +17,8 @@ std::size_t VpTreeSearch::search(const SearchContext& ctx) const {
 
     const auto& blocks = ctx.brain.blocks();
 
-    const auto& current_mfcc = blocks[ctx.current_block_index].analysis.print.mfcc;
-    const BlockAnalysis effective = momentum_state_.blend(ctx.target, current_mfcc, ctx.params);
+    const auto& current_mel = blocks[ctx.current_block_index].analysis.print.mel;
+    const BlockAnalysis effective = momentum_state_.blend(ctx.target, current_mel, ctx.params);
 
     // O(log N) candidate retrieval using mel (matches the index build feature).
     const auto candidates = ctx.brain.kNearest(effective.print.mel, num_candidates_);

@@ -9,8 +9,8 @@ namespace audio::adapter::search {
 std::size_t ClosestSearch::search(const SearchContext& ctx) const {
     const auto& blocks = ctx.brain.blocks();
 
-    const auto& current_mfcc = blocks[ctx.current_block_index].analysis.print.mfcc;
-    const BlockAnalysis effective = momentum_state_.blend(ctx.target, current_mfcc, ctx.params);
+    const auto& current_mel = blocks[ctx.current_block_index].analysis.print.mel;
+    const BlockAnalysis effective = momentum_state_.blend(ctx.target, current_mel, ctx.params);
 
     double best_score = std::numeric_limits<double>::max();
     std::size_t best_idx = 0;

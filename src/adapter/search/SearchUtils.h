@@ -25,13 +25,13 @@ namespace audio::adapter::search {
 /**
  * Reusable momentum state for search strategies.
  *
- * Tracks a velocity vector in MFCC space so that search targets drift
- * smoothly through the brain's timbral landscape.  Declare as a
- * `mutable` member of any strategy class to add momentum support.
+ * Tracks a velocity vector in mel space — the primary fingerprint used by
+ * the VP tree index and the default scoring metric (mel_weight=1.0 by default).
+ * Declare as a `mutable` member of any strategy class to add momentum support.
  *
  * Usage:
  *   auto effective = momentum_state_.blend(ctx.target,
- *                        blocks[ctx.current_block_index].analysis.print.mfcc,
+ *                        blocks[ctx.current_block_index].analysis.print.mel,
  *                        ctx.params);
  *   // … search against effective_target …
  *
@@ -39,22 +39,24 @@ namespace audio::adapter::search {
  * momentum mid-stream produces a smooth result with no sudden jump.
  */
 struct MomentumState {
-    mutable std::vector<double> velocity;  ///< Running velocity in MFCC space.
-    mutable std::vector<float> prev_fp;    ///< MFCC from the previous block.
+    mutable std::vector<double> velocity;  ///< Running velocity in mel space.
+    mutable std::vector<float> prev_fp;    ///< Mel fingerprint from the previous block.
 
     /**
-     * Evolve velocity from @p current_mfcc, then return a BlockAnalysis
-     * whose MFCC is blended between @p target and the predicted position.
+     * Evolve velocity from @p current_mel, then return a BlockAnalysis
+     * whose mel fingerprint is blended between @p target and the predicted position.
      *
      * When momentum == 0 the original target is returned unchanged (fast path).
-     * All non-MFCC fields (mel, spectral, chroma) are copied from @p target.
+     * All non-mel fields (mfcc, spectral, chroma) are copied from @p target unchanged.
+     * For VpTreeSearch the blended mel is also used as the kNearest() query key,
+     * so the candidate set itself shifts toward the predicted timbral position.
      */
     [[nodiscard]] BlockAnalysis blend(const BlockAnalysis& target,
-                                      const std::vector<float>& current_mfcc,
+                                      const std::vector<float>& current_mel,
                                       const SearchParams& params) const {
         const double mom = std::clamp(params.momentum, 0.0, 1.0);
         const double decay = std::clamp(params.momentum_decay, 0.0, 1.0);
-        const std::size_t n = current_mfcc.size();
+        const std::size_t n = current_mel.size();
 
         // Update velocity from the delta since the last block.
         if (prev_fp.size() == n) {
@@ -63,33 +65,33 @@ struct MomentumState {
             }
             for (std::size_t i = 0; i < n; ++i) {
                 const double delta =
-                    static_cast<double>(current_mfcc[i]) - static_cast<double>(prev_fp[i]);
+                    static_cast<double>(current_mel[i]) - static_cast<double>(prev_fp[i]);
                 velocity[i] = (velocity[i] * decay) + (delta * (1.0 - decay));
             }
         } else {
             velocity.assign(n, 0.0);
         }
-        prev_fp = current_mfcc;
+        prev_fp = current_mel;
 
         if (mom <= 0.0) {
             return target;  // fast path: nothing to blend
         }
 
-        // Build blended MFCC: (1-mom)*target + mom*(current + velocity)
-        const auto& target_mfcc = target.print.mfcc;
-        std::vector<float> blended(target_mfcc.size());
-        for (std::size_t i = 0; i < target_mfcc.size(); ++i) {
-            const double predicted = (i < n) ? static_cast<double>(current_mfcc[i]) +
+        // Build blended mel: (1-mom)*target + mom*(current + velocity)
+        const auto& target_mel = target.print.mel;
+        std::vector<float> blended(target_mel.size());
+        for (std::size_t i = 0; i < target_mel.size(); ++i) {
+            const double predicted = (i < n) ? static_cast<double>(current_mel[i]) +
                                                    (i < velocity.size() ? velocity[i] : 0.0)
-                                             : static_cast<double>(target_mfcc[i]);
-            blended[i] = static_cast<float>((static_cast<double>(target_mfcc[i]) * (1.0 - mom)) +
+                                             : static_cast<double>(target_mel[i]);
+            blended[i] = static_cast<float>((static_cast<double>(target_mel[i]) * (1.0 - mom)) +
                                             (predicted * mom));
         }
 
-        // Copy target, then replace only the MFCC fields.
+        // Copy target, then replace only the mel fields.
         BlockAnalysis result = target;
-        result.print.mfcc = blended;
-        result.normalised_print.mfcc = blended;
+        result.print.mel = blended;
+        result.normalised_print.mel = blended;
         return result;
     }
 
