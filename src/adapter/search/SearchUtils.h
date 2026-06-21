@@ -5,6 +5,7 @@
 #include "../../domain/SearchParams.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <limits>
 #include <numeric>
@@ -14,95 +15,12 @@
 /**
  * Shared utilities for search strategy adapters.
  *
- * Centralises stickyness logic, usage handling, multi-fingerprint
- * blended distance computation, and momentum state.
+ * Centralises stickyness logic, usage handling, and multi-fingerprint
+ * blended distance computation.
  *
  * All functions treat `blocks` as read-only; usage state is maintained
  * in a separate `block_usages` vector owned by the caller.
  */
-namespace audio::adapter::search {
-
-/**
- * Reusable momentum state for search strategies.
- *
- * Tracks a velocity vector in mel space — the primary fingerprint used by
- * the VP tree index and the default scoring metric (mel_weight=1.0 by default).
- * Declare as a `mutable` member of any strategy class to add momentum support.
- *
- * Usage:
- *   auto effective = momentum_state_.blend(ctx.target,
- *                        blocks[ctx.current_block_index].analysis.print.mel,
- *                        ctx.params);
- *   // … search against effective_target …
- *
- * The state is always updated (even when momentum == 0), so turning on
- * momentum mid-stream produces a smooth result with no sudden jump.
- */
-struct MomentumState {
-    mutable std::vector<double> velocity;  ///< Running velocity in mel space.
-    mutable std::vector<float> prev_fp;    ///< Mel fingerprint from the previous block.
-
-    /**
-     * Evolve velocity from @p current_mel, then return a BlockAnalysis
-     * whose mel fingerprint is blended between @p target and the predicted position.
-     *
-     * When momentum == 0 the original target is returned unchanged (fast path).
-     * All non-mel fields (mfcc, spectral, chroma) are copied from @p target unchanged.
-     * For VpTreeSearch the blended mel is also used as the kNearest() query key,
-     * so the candidate set itself shifts toward the predicted timbral position.
-     */
-    [[nodiscard]] BlockAnalysis blend(const BlockAnalysis& target,
-                                      const std::vector<float>& current_mel,
-                                      const SearchParams& params) const {
-        const double mom = std::clamp(params.momentum, 0.0, 1.0);
-        const double decay = std::clamp(params.momentum_decay, 0.0, 1.0);
-        const std::size_t n = current_mel.size();
-
-        // Update velocity from the delta since the last block.
-        if (prev_fp.size() == n) {
-            if (velocity.size() != n) {
-                velocity.assign(n, 0.0);
-            }
-            for (std::size_t i = 0; i < n; ++i) {
-                const double delta =
-                    static_cast<double>(current_mel[i]) - static_cast<double>(prev_fp[i]);
-                velocity[i] = (velocity[i] * decay) + (delta * (1.0 - decay));
-            }
-        } else {
-            velocity.assign(n, 0.0);
-        }
-        prev_fp = current_mel;
-
-        if (mom <= 0.0) {
-            return target;  // fast path: nothing to blend
-        }
-
-        // Build blended mel: (1-mom)*target + mom*(current + velocity)
-        const auto& target_mel = target.print.mel;
-        std::vector<float> blended(target_mel.size());
-        for (std::size_t i = 0; i < target_mel.size(); ++i) {
-            const double predicted = (i < n) ? static_cast<double>(current_mel[i]) +
-                                                   (i < velocity.size() ? velocity[i] : 0.0)
-                                             : static_cast<double>(target_mel[i]);
-            blended[i] = static_cast<float>((static_cast<double>(target_mel[i]) * (1.0 - mom)) +
-                                            (predicted * mom));
-        }
-
-        // Copy target, then replace only the mel fields.
-        BlockAnalysis result = target;
-        result.print.mel = blended;
-        result.normalised_print.mel = blended;
-        return result;
-    }
-
-    void reset() const noexcept {
-        velocity.clear();
-        prev_fp.clear();
-    }
-};
-
-}  // namespace audio::adapter::search
-
 namespace audio::adapter::search::SearchUtils {
 
 // ── Usage tracking ─────────────────────────────────────────────────────
@@ -214,7 +132,7 @@ inline double weightedDist(const BlockAnalysis& target, const BlockAnalysis& can
 }
 
 /**
- * Full score for a candidate block: weighted distance + usage penalty.
+ * Full score for a candidate block: weighted distance + usage penalty + brightness bias.
  *
  * @param target          Target block analysis (raw + normalised fingerprints).
  * @param candidate       Candidate block analysis (raw + normalised fingerprints).
@@ -224,7 +142,40 @@ inline double weightedDist(const BlockAnalysis& target, const BlockAnalysis& can
  */
 inline double fullScore(const BlockAnalysis& target, const BlockAnalysis& candidate,
                         double candidate_usage, const SearchParams& params) {
-    return weightedDist(target, candidate, params) + (candidate_usage * params.usage_weight);
+    double score =
+        weightedDist(target, candidate, params) + (candidate_usage * params.usage_weight);
+
+    if (params.brightness_weight > 0.0) {
+        // Mel spectral centroid normalised to [0, 1]:
+        //   centroid = sum(i * mel[i]) / sum(mel[i])  / (N - 1)
+        // Returns 0.5 when mel is empty or energy is zero (neutral).
+        //
+        // The penalty is EXPONENTIAL: score × exp(weight × d² × kGain).
+        // A multiplicative (1 + weight × d²) factor is bounded at 2× for weight=1,
+        // which is too weak — timbral distances can span 1000:1 ratios within a brain.
+        // With kGain=10: at weight=1,d=1 the factor is e^10 ≈ 22000×, making
+        // off-brightness blocks essentially unselectable.  At weight=0.5,d=1: e^5 ≈ 148×.
+        // Weight stays in the natural [0, 1] range: 0=off, 0.5=strong bias, 1=near-pure selection.
+        const auto& mel = candidate.print.mel;
+        const std::size_t mel_n = mel.size();
+        if (mel_n > 1) {
+            double energy = 0.0;
+            double weighted = 0.0;
+            for (std::size_t i = 0; i < mel_n; ++i) {
+                const double v = mel[i];
+                energy += v;
+                weighted += static_cast<double>(i) * v;
+            }
+            const double brightness =
+                (energy > 1e-12) ? (weighted / energy) / static_cast<double>(mel_n - 1) : 0.5;
+            const double d = brightness - params.brightness_target;
+            const double bw = std::clamp(params.brightness_weight, 0.0, 1.0);
+            static constexpr double kGain = 10.0;
+            score *= std::exp(bw * d * d * kGain);
+        }
+    }
+
+    return score;
 }
 
 // ── Stickyness ─────────────────────────────────────────────────────────

@@ -22,9 +22,6 @@ namespace audio::adapter::search {
  * where F is the fingerprint dimension.  For large brains (N ≫ K) this is
  * significantly faster while producing nearly identical quality results.
  *
- * When SearchParams::momentum > 0, the MFCC used for both the VP tree query
- * and candidate scoring is blended toward the predicted timbral position.
- *
  * Requires `brain.buildIndex()` to have been called before playback.
  * Throws `std::runtime_error` if the index is absent.
  *
@@ -39,7 +36,6 @@ public:
 
 private:
     std::size_t num_candidates_;
-    mutable MomentumState momentum_state_;
 };
 
 }  // namespace audio::adapter::search

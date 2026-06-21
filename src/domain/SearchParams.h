@@ -78,16 +78,20 @@ struct SearchParams {
     int spectral_start = 0;
     int spectral_end = 100;
 
-    // ── Momentum search ────────────────────────────────────────────────
+    // ── Brightness bias ────────────────────────────────────────────────
 
-    /// Momentum [0.0, 1.0]: how much the search remembers its previous
-    /// direction in fingerprint space.  0.0 = no memory (pure closest),
-    /// 1.0 = full inertia (ignores target, follows trajectory).
-    double momentum = 0.0;
+    /// Target spectral brightness [0.0, 1.0]:
+    ///   0.0 = prefer bass-heavy blocks (energy concentrated in low mel bands)
+    ///   0.5 = neutral (no preference)
+    ///   1.0 = prefer treble-heavy blocks (energy concentrated in high mel bands)
+    /// Only has an effect when brightness_weight > 0.
+    double brightness_target = 0.5;
 
-    /// Momentum decay [0.0, 1.0]: how quickly momentum dissipates per step.
-    /// 1.0 = no decay, 0.0 = instant stop.
-    double momentum_decay = 0.95;
+    /// Brightness bias strength [0.0, 1.0] — exponential penalty.
+    /// At weight=1, blocks at maximum brightness deviation from brightness_target
+    /// are penalised by e^10 ≈ 22000×, making them effectively unselectable.
+    /// 0.0 = off, 0.5 = strong preference, 1.0 = near-pure brightness selection.
+    double brightness_weight = 0.0;
 
     // ── Granular post-processing ───────────────────────────────────────
 

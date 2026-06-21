@@ -16,10 +16,6 @@ namespace audio::adapter::search {
  * current block (via `brain.neighbors(i)`), producing output that evolves
  * smoothly through the brain's timbral space.
  *
- * When SearchParams::momentum > 0, the scoring of the fixed candidate set uses
- * a momentum-blended target, biasing selection toward the predicted direction
- * of travel.  The candidate set itself is unchanged (momentum cannot expand it).
- *
  * Requires `brain.buildIndex()` to have been called before playback.
  * Throws `std::runtime_error` if the index is absent.
  *
@@ -34,7 +30,6 @@ public:
 
 private:
     std::size_t num_synapses_;
-    mutable MomentumState momentum_state_;
 };
 
 }  // namespace audio::adapter::search

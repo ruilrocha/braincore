@@ -16,7 +16,7 @@ namespace audio {
  * PlayHead bundles all per-stream state that changes as audio plays:
  *   - current position in the brain (block index)
  *   - per-block usage counters (for novelty / boredom effects)
- *   - the search strategy instance (may carry its own state, e.g. momentum velocity)
+ *   - the search strategy instance (may carry its own internal state)
  *
  * The Brain it references is fully immutable after construction and safe to
  * share across any number of concurrent PlayHeads.
@@ -40,7 +40,7 @@ public:
      * @param brain   Immutable data library to traverse.  Must remain alive for
      *                the lifetime of this PlayHead.
      * @param search  Search strategy (ownership transferred; may carry internal
-     *                state such as momentum velocity).
+     *                state such as synapse traversal position).
      */
     PlayHead(std::shared_ptr<const Brain> brain, std::shared_ptr<port::ISearchStrategy> search);
 
@@ -61,7 +61,7 @@ public:
 
     /**
      * Reset traversal state: position returns to 0, all usage counters clear.
-     * Does NOT reset any strategy-internal state (e.g. momentum velocity).
+     * Does NOT reset any strategy-internal state.
      */
     void reset();
 

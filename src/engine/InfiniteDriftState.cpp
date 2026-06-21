@@ -43,7 +43,7 @@ void InfiniteDriftState::initFromNoise(const Brain& brain) {
 
 bool InfiniteDriftState::updateFromMatch(const AudioPrint& matched_print,
                                          const std::size_t matched_idx, const Brain& brain) {
-    // Compute mel energy to detect silent blocks.
+    // Detect silent blocks and reseed.
     const double energy = [&] {
         double sum = 0.0;
         for (const float v : matched_print.mel) {
@@ -52,7 +52,6 @@ bool InfiniteDriftState::updateFromMatch(const AudioPrint& matched_print,
         return sum;
     }();
 
-    // Silent block: jump to a fresh random position.
     if (energy < kSilenceThreshold) {
         initFromNoise(brain);
         drift_last_idx_ = matched_idx;
@@ -60,7 +59,7 @@ bool InfiniteDriftState::updateFromMatch(const AudioPrint& matched_print,
         return true;
     }
 
-    // Advance drift: matched block fingerprint + small noise becomes the next target.
+    // Next target = matched fingerprint + small noise.
     copyWithNoise(drift_print_.print.mfcc, matched_print.mfcc, 0.05);
     copyWithNoise(drift_print_.print.mel, matched_print.mel, 0.05);
     copyWithNoise(drift_print_.print.spectral, matched_print.spectral, 0.05);

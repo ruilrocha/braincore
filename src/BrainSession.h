@@ -110,10 +110,11 @@ public:
     void setSpectralWeight(double value) noexcept;
     /** Raw-vs-normalised fingerprint blend [0=raw, 1=normalised]. */
     void setNRatio(double value) noexcept;
-    /** Momentum [0, 1] — how much velocity in MFCC space biases the next search. */
-    void setMomentum(double value) noexcept;
-    /** Momentum decay [0, 1] — how quickly the velocity dissipates per step (default 0.95). */
-    void setMomentumDecay(double value) noexcept;
+    /** Spectral brightness target [0=bass, 0.5=neutral, 1=treble] — softly biases block selection.
+     */
+    void setBrightnessTarget(double value) noexcept;
+    /** Brightness bias strength [0, 1] — 0=off, 0.5=strong, 1=near-pure brightness selection. */
+    void setBrightnessWeight(double value) noexcept;
 
     // ── Post-processing effects ────────────────────────────────────────
 

@@ -39,9 +39,11 @@ public:
     /**
      * Advance drift after a block was matched.
      *
-     * Copies the matched block's fingerprint (+ tiny noise) as the next
-     * target.  Reinitialises from noise if the block is silent or the
-     * same index has been returned more than 16 times consecutively.
+     * Copies the matched block's fingerprint with a small noise perturbation
+     * as the next search target.
+     *
+     * Reinitialises from noise if the block is silent or the same index has
+     * been returned more than 16 times consecutively.
      *
      * @param matched_print  AudioPrint of the matched block.
      * @param matched_idx    Index of the matched block.
