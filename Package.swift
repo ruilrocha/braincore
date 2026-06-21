@@ -13,7 +13,7 @@
 
 import PackageDescription
 
-let package = Package(
+let package = Package( 
     name: "BrainCore",
     platforms: [
         .iOS(.v16),

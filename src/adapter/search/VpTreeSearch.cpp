@@ -17,18 +17,21 @@ std::size_t VpTreeSearch::search(const SearchContext& ctx) const {
 
     const auto& blocks = ctx.brain.blocks();
 
-    // O(log N) candidate retrieval using MFCC as the primary key.
-    const auto candidates = ctx.brain.kNearest(ctx.target.print.mfcc, num_candidates_);
+    const auto& current_mel = blocks[ctx.current_block_index].analysis.print.mel;
+    const BlockAnalysis effective = momentum_state_.blend(ctx.target, current_mel, ctx.params);
+
+    // O(log N) candidate retrieval using mel (matches the index build feature).
+    const auto candidates = ctx.brain.kNearest(effective.print.mel, num_candidates_);
     if (candidates.empty()) {
         return 0;
     }
 
     // Score candidates with the full blended multi-feature distance.
     const auto [best_idx, best_score] =
-        SearchUtils::scoreCandidates(candidates, ctx.target, blocks, ctx.block_usages, ctx.params);
+        SearchUtils::scoreCandidates(candidates, effective, blocks, ctx.block_usages, ctx.params);
 
     SearchUtils::applyUsage(ctx.block_usages, best_idx, ctx.params.usage_falloff);
-    return SearchUtils::stickify(ctx.target, blocks, ctx.block_usages, best_idx, best_score,
+    return SearchUtils::stickify(effective, blocks, ctx.block_usages, best_idx, best_score,
                                  ctx.current_block_index, ctx.params);
 }
 

@@ -16,7 +16,7 @@ namespace audio {
  * PlayHead bundles all per-stream state that changes as audio plays:
  *   - current position in the brain (block index)
  *   - per-block usage counters (for novelty / boredom effects)
- *   - the search strategy instance (may carry its own state, e.g. MomentumSearch)
+ *   - the search strategy instance (may carry its own state, e.g. momentum velocity)
  *
  * The Brain it references is fully immutable after construction and safe to
  * share across any number of concurrent PlayHeads.
@@ -61,7 +61,7 @@ public:
 
     /**
      * Reset traversal state: position returns to 0, all usage counters clear.
-     * Does NOT reset any strategy-internal state (e.g. MomentumSearch velocity).
+     * Does NOT reset any strategy-internal state (e.g. momentum velocity).
      */
     void reset();
 

@@ -120,7 +120,7 @@ void Brain::addSound(const Sound& sound, const std::string& name,
             block.channel_samples[ch].assign(
                 src_ch.begin() + static_cast<std::ptrdiff_t>(i),
                 src_ch.begin() + static_cast<std::ptrdiff_t>(i + ch_available));
-            block.channel_samples[ch].resize(block_size, 0.0f);
+            block.channel_samples[ch].resize(block_size, 0.0F);
         }
 
         // channel_samples[0] is the raw mono reference (zero-padded if needed).

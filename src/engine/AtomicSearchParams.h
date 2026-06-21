@@ -28,6 +28,8 @@ struct AtomicSearchParams {
     std::atomic<double> mel_weight{1.0};
     std::atomic<double> spectral_weight{0.0};
     std::atomic<double> n_ratio{0.0};
+    std::atomic<double> momentum{0.0};
+    std::atomic<double> momentum_decay{0.95};
 
     /// Copy all fields into a plain SearchParams value object.
     [[nodiscard]] SearchParams snapshot() const noexcept {
@@ -39,6 +41,8 @@ struct AtomicSearchParams {
         sp.mel_weight = mel_weight.load(std::memory_order_relaxed);
         sp.spectral_weight = spectral_weight.load(std::memory_order_relaxed);
         sp.n_ratio = n_ratio.load(std::memory_order_relaxed);
+        sp.momentum = momentum.load(std::memory_order_relaxed);
+        sp.momentum_decay = momentum_decay.load(std::memory_order_relaxed);
         return sp;
     }
 };

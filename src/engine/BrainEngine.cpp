@@ -186,6 +186,12 @@ void BrainEngine::setSpectralWeight(const double val) noexcept {
 void BrainEngine::setNRatio(const double val) noexcept {
     impl_->params.n_ratio.store(val, std::memory_order_relaxed);
 }
+void BrainEngine::setMomentum(const double val) noexcept {
+    impl_->params.momentum.store(val, std::memory_order_relaxed);
+}
+void BrainEngine::setMomentumDecay(const double val) noexcept {
+    impl_->params.momentum_decay.store(val, std::memory_order_relaxed);
+}
 
 // ── Effects ───────────────────────────────────────────────────────────────────
 
