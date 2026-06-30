@@ -43,12 +43,13 @@ install commands above, both `conan-debug` and `conan-release` are available.
 - Enable **Use CMake Presets**.
 - Select `conan-debug` for development or `conan-release` for optimized builds.
 - Leave **CMake options** empty for preset profiles.
+- For static analysis, add `-DENABLE_CLANG_STATIC_ANALYZER=ON` to the selected profile.
 
 ---
 
 ## Sanitizers
 
-Both sanitizers are available as manual GitHub Actions workflows (**Actions → ASan / MSan → Run workflow**) and can be run locally against the Debug build.
+Both sanitizers and the Clang Static Analyzer are available as manual GitHub Actions workflows (**Actions → ASan / MSan / Clang Static Analyzer → Run workflow**) and can be run locally against the Debug build.
 
 Both workflows use **Clang** — ASan for better symbolisation, MSan because it is Clang-only.
 
@@ -83,6 +84,21 @@ MSAN_OPTIONS=halt_on_error=1 \
 ```
 
 > **Note:** MSan requires all linked code to be instrumented. False positives may appear from uninstrumented third-party libraries.
+
+### Clang Static Analyzer
+
+Runs Clang Static Analyzer checks (`clang-analyzer-*`) via `clang-tidy` during compilation.
+
+```bash
+# Clang and clang-tidy are required
+export CC=clang CXX=clang++
+conan profile detect --force
+conan install . --output-folder=cmake-build-debug/conan --build=missing -s build_type=Debug
+cmake --preset conan-debug -DENABLE_CLANG_STATIC_ANALYZER=ON
+cmake --build --preset conan-debug
+```
+
+Analyzer diagnostics are printed in build output. Use this in CI/local checks to catch null dereferences, dead stores, and other path-sensitive defects.
 
 ---
 

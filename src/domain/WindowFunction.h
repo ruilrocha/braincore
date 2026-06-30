@@ -61,7 +61,7 @@ struct WindowFunction {
                 case WindowShape::Gaussian: {
                     constexpr double sigma = 0.5;
                     const double arg =
-                        (nd - (num_samples - 1.0) / 2.0) / (sigma * (num_samples - 1.0) / 2.0);
+                        (nd - ((num_samples - 1.0) / 2.0)) / (sigma * (num_samples - 1.0) / 2.0);
                     win = std::exp(-0.5 * arg * arg);
                     break;
                 }

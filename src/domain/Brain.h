@@ -47,7 +47,7 @@ struct SourceSound {
  *   auto brain = std::make_shared<Brain>(analyser, config);
  *   brain->addSound(sound1, "a.wav");
  *   brain->addSound(sound2, "b.wav");
- *   brain->buildIndex();          // optional; required for SynapticSearch/MarkovChainSearch
+ *   brain->buildIndex();          // optional; required for SynapticSearch
  *   // brain is now fully constructed and safe to share as const.
  * @endcode
  *
@@ -86,7 +86,7 @@ public:
      *
      * The index unifies two roles:
      * - `index()->neighbors(i)` → O(1) precomputed K nearest neighbours for
-     *   block i, used by SynapticSearch and MarkovChainSearch.
+     *   block i, used by SynapticSearch.
      * - `index()->kNearest(fp, k)` → O(log N) dynamic exact query for an
      *   arbitrary fingerprint, used by VpTreeSearch.
      *

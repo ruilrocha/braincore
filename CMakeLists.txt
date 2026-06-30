@@ -32,7 +32,6 @@ add_library(braincore-lib STATIC
     src/adapter/search/ClosestSearch.cpp
     src/adapter/search/SynapticSearch.cpp
     src/adapter/search/VpTreeSearch.cpp
-    src/adapter/search/MarkovChainSearch.cpp
     src/adapter/effects/SpectralMorph.cpp
     src/adapter/effects/EffectHelpers.cpp
     src/adapter/effects/OlaBuffer.cpp
@@ -99,6 +98,8 @@ if(ENABLE_MSAN)
     target_compile_options(braincore-tests PRIVATE ${_msan_flags})
     target_link_options   (braincore-tests PRIVATE -fsanitize=memory)
 endif()
+
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # format  (auto-format all project sources with clang-format)

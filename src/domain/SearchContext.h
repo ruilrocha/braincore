@@ -27,7 +27,7 @@ struct SearchContext {
     const BlockAnalysis& target;
     const SearchParams& params;
     std::size_t current_block_index;
-    std::vector<double>& block_usages;
+    std::vector<double>& block_usages;  ///< Writable; strategies call applyUsage on it.
 };
 
 }  // namespace audio

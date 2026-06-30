@@ -70,7 +70,7 @@ public:
     void setWindowShape(WindowShape shape) noexcept;
     [[nodiscard]] WindowShape getWindowShape() const noexcept;
 
-    /** K nearest neighbours per block (Synaptic/Markov strategies). */
+    /** K nearest neighbours per block (SynapticSearch strategy). */
     void setNumSynapses(std::size_t n) noexcept;
     [[nodiscard]] std::size_t getNumSynapses() const noexcept;
 

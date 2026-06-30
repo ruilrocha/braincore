@@ -26,8 +26,8 @@ void OlaBuffer::accumulate(const std::vector<std::vector<float>>& channel_sample
 
     // One-time allocation — channel count not known at construction.
     if (buffers_.size() < nch) {
-        buffers_.assign(nch, std::vector<double>(buf_size_, 0.0));
-        read_buf_.assign(nch, std::vector<double>(step_size_, 0.0));
+        buffers_.assign(nch, std::vector(buf_size_, 0.0));
+        read_buf_.assign(nch, std::vector(step_size_, 0.0));
     }
 
     const std::size_t len = std::min(channel_samples[0].size(), block_size_);

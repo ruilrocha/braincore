@@ -17,7 +17,11 @@ PlayHead::PlayHead(std::shared_ptr<const Brain> brain,
 }
 
 std::size_t PlayHead::advance(const BlockAnalysis& target, const SearchParams& params) {
-    SearchContext ctx{*brain_, target, params, current_block_idx_, block_usages_};
+    const SearchContext ctx{.brain = *brain_,
+                            .target = target,
+                            .params = params,
+                            .current_block_index = current_block_idx_,
+                            .block_usages = block_usages_};
     current_block_idx_ = search_->search(ctx);
     return current_block_idx_;
 }

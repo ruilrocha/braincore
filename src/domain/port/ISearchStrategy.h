@@ -17,9 +17,9 @@ namespace audio::port {
  *     stable as new contextual fields are added.
  *   - `ctx.brain` is passed by const reference — Brain is an immutable data
  *     container; strategies must not mutate it.
- *   - `ctx.block_usages` is a mutable vector (sized to brain.size()) owned
- *     by the caller (PlayHead).  Strategies read usage penalties and write
- *     selections back into it.
+ *   - `ctx.block_usages` is a mutable reference to per-block usage counters owned
+ *     by the caller (PlayHead).  Strategies read usage penalties when scoring
+ *     candidates, and call applyUsage() after selecting a block.
  *   - `ctx.target` carries both raw and normalised prints so strategies can
  *     apply `SearchParams::n_ratio` blending correctly.
  */

@@ -156,7 +156,7 @@ inline double fullScore(const BlockAnalysis& target, const BlockAnalysis& candid
         // With kGain=10: at weight=1,d=1 the factor is e^10 ≈ 22000×, making
         // off-brightness blocks essentially unselectable.  At weight=0.5,d=1: e^5 ≈ 148×.
         // Weight stays in the natural [0, 1] range: 0=off, 0.5=strong bias, 1=near-pure selection.
-        const auto& mel = candidate.print.mel;
+        const auto& mel = candidate.normalised_print.mel;
         const std::size_t mel_n = mel.size();
         if (mel_n > 1) {
             double energy = 0.0;
