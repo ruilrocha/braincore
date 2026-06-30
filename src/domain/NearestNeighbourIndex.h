@@ -22,7 +22,7 @@ namespace audio {
  *   the K nearest stored points.  Used by VpTreeSearch.
  * - **Precomputed neighbours** (`neighbors`): for each stored point i, returns
  *   the K indices that were its nearest neighbours at build time.  Used by
- *   SynapticSearch and MarkovChainSearch for O(1) neighbourhood access.
+ *   SynapticSearch for O(1) neighbourhood access.
  *
  * ## Usage
  * @code

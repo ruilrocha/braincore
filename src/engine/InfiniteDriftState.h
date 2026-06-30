@@ -22,8 +22,11 @@ struct AudioPrint;
  * times (can happen with tiny brains or usage_weight == 0), the state is
  * reseeded from a fresh random position.
  *
- * Silent-block detection: if a matched block has near-zero mel energy the
- * drift path is reseeded rather than converging on silence.
+ * Low-energy escape: consecutive low-energy blocks (silence or near-silence)
+ * are tolerated for up to kLowEnergyEscapeSteps steps.  If silence persists
+ * beyond that, the drift is reseeded.  The threshold is computed relative to
+ * the brain's own mean energy at seed time, so it works across any material.
+ * Brief silence is preserved — it can be musically interesting.
  */
 class InfiniteDriftState {
 public:
@@ -32,7 +35,8 @@ public:
     /**
      * Seed the drift target from a random brain block, adding small noise
      * so each session starts from a distinct position in timbral space.
-     * No-op if the brain is empty.
+     * Also samples the brain to compute the mean mel energy used as the
+     * low-energy escape threshold.  No-op if the brain is empty.
      */
     void initFromNoise(const Brain& brain);
 
@@ -42,8 +46,13 @@ public:
      * Copies the matched block's fingerprint with a small noise perturbation
      * as the next search target.
      *
-     * Reinitialises from noise if the block is silent or the same index has
-     * been returned more than 16 times consecutively.
+     * Reinitialises from noise if:
+     *  - The same block index has been returned more than kStuckThreshold
+     *    consecutive times (stuck in local minimum).
+     *  - More than kLowEnergyEscapeSteps consecutive low-energy blocks have
+     *    been returned (trapped in a silence cluster).
+     *
+     * Brief silence (fewer than kLowEnergyEscapeSteps blocks) is allowed.
      *
      * @param matched_print  AudioPrint of the matched block.
      * @param matched_idx    Index of the matched block.
@@ -67,8 +76,14 @@ private:
     std::size_t drift_last_idx_ = 0;
     int drift_stuck_count_ = 0;
 
+    // Low-energy escape state.
+    double brain_mean_mel_energy_ = 0.0;  ///< Computed from brain blocks at initFromNoise time.
+    int low_energy_count_ = 0;            ///< Consecutive low-energy steps since last reset.
+
     static constexpr int kStuckThreshold = 16;
-    static constexpr double kSilenceThreshold = 1e-6;
+    static constexpr int kLowEnergyEscapeSteps = 8;
+    /// Fraction of brain mean mel energy below which a block is considered "low energy".
+    static constexpr double kLowEnergyFraction = 0.05;
 };
 
 }  // namespace audio
