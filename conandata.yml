@@ -6,3 +6,6 @@ requirements:
 
   # Unit tests
   - "gtest/1.14.0"
+
+  # Micro-benchmarks (opt-in: cmake … -DENABLE_BENCHMARKS=ON)
+  - "benchmark/1.8.3"

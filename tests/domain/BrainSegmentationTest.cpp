@@ -23,6 +23,7 @@ public:
                                             int /*sr*/) const override {
         audio::AudioPrint p;
         p.mfcc = {1.0f, 0.0f};
+        p.mel = {0.5f, 0.5f};
         p.spectral = {0.5f};
         p.dominant_freq = 440.0f;
         return p;

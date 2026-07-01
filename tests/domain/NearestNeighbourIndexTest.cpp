@@ -1,30 +1,15 @@
 #include "domain/NearestNeighbourIndex.h"
 #include "gtest/gtest.h"
 
-#include <cmath>
 #include <vector>
 
 namespace {
 
-// Simple 1-D Euclidean distance.
-double euclidean(const std::vector<float>& a, const std::vector<float>& b) {
-    double s = 0.0;
-    for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) {
-        const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
-        s += d * d;
-    }
-    return std::sqrt(s);
-}
-
 // Build an index from a sorted set of 1-D points.
 audio::NearestNeighbourIndex makeIndex(const std::vector<float>& pts, std::size_t k) {
-    std::vector<std::vector<float>> points;
-    points.reserve(pts.size());
-    for (const float v : pts) {
-        points.push_back({v});
-    }
+    // Flat matrix: N rows × 1 col.
     audio::NearestNeighbourIndex idx;
-    idx.build(std::move(points), euclidean, k);
+    idx.build(pts, 1, k);  // pts is already a flat 1-D matrix (dim=1)
     return idx;
 }
 

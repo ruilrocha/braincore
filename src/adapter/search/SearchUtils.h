@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <limits>
 #include <numeric>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -44,28 +45,39 @@ inline void applyUsage(std::vector<double>& block_usages, const std::size_t sele
 
 namespace detail {
 
-/// Sum of squared differences over a range [start, end), normalised by range length.
-inline double ssd(const std::vector<float>& a, const std::vector<float>& b, std::size_t start,
-                  std::size_t end) {
-    const std::size_t lim = std::min({end, a.size(), b.size()});
-    if (lim <= start) {
-        return 0.0;
-    }
-    double acc = 0.0;
-    for (std::size_t i = start; i < lim; ++i) {
-        const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
-        acc += d * d;
-    }
-    return acc / static_cast<double>(lim - start);
-}
-
-/// Normalised SSD over the full (overlapping) length of two vectors.
-inline double ssdFull(const std::vector<float>& a, const std::vector<float>& b) {
+/// Sum of squared differences over a span — contiguous float, auto-vectorizable.
+/// Double accumulator preserves numeric precision.
+inline double ssdSpan(std::span<const float> a, std::span<const float> b) {
     const std::size_t n = std::min(a.size(), b.size());
     if (n == 0) {
         return 0.0;
     }
-    return ssd(a, b, 0, n);
+    double acc = 0.0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const double d = static_cast<double>(a[i]) - static_cast<double>(b[i]);
+        acc += d * d;
+    }
+    return acc / static_cast<double>(n);
+}
+
+/// SSD over a sub-range of two spans.
+inline double ssdSpanRange(std::span<const float> a, std::span<const float> b, std::size_t start,
+                           std::size_t end) {
+    const std::size_t lim = std::min({end, a.size(), b.size()});
+    if (lim <= start) {
+        return 0.0;
+    }
+    return ssdSpan(a.subspan(start, lim - start), b.subspan(start, lim - start));
+}
+
+/// Convenience wrappers for vector-backed fingerprints.
+inline double ssd(const std::vector<float>& a, const std::vector<float>& b, std::size_t start,
+                  std::size_t end) {
+    return ssdSpanRange(a, b, start, end);
+}
+
+inline double ssdFull(const std::vector<float>& a, const std::vector<float>& b) {
+    return ssdSpan(a, b);
 }
 
 /// Linear blend: a*(1−t) + b*t.
@@ -74,40 +86,75 @@ inline double blend(double a, double b, double t) {
 }
 
 /**
+ * Normalised weights precomputed once per search iteration.
+ *
+ * Hoisting the per-weight division out of the per-candidate inner loop avoids
+ * N × (4 divisions + 4 comparisons) for an N-block scan.
+ */
+struct NormWeights {
+    double mfcc = 0.0;
+    double mel = 0.0;
+    double spectral = 0.0;
+    double chroma = 0.0;
+    bool mfcc_fallback = false;  ///< True when all weights are zero → pure MFCC.
+
+    static NormWeights from(const SearchParams& params) noexcept {
+        NormWeights w;
+        const double wm = std::max(0.0, params.mfcc_weight);
+        const double wl = std::max(0.0, params.mel_weight);
+        const double ws = std::max(0.0, params.spectral_weight);
+        const double wc = std::max(0.0, params.chroma_weight);
+        const double total = wm + wl + ws + wc;
+        if (total < 1e-12) {
+            w.mfcc_fallback = true;
+            return w;
+        }
+        const double inv = 1.0 / total;
+        w.mfcc = wm * inv;
+        w.mel = wl * inv;
+        w.spectral = ws * inv;
+        w.chroma = wc * inv;
+        return w;
+    }
+};
+
+/**
  * Weighted multi-feature distance between two AudioPrint bundles.
  *
- * Weights are normalised to sum = 1.0 so each slider is a true percentage.
- * Falls back to pure MFCC when all weights are zero.
+ * Accepts precomputed normalized weights — call NormWeights::from(params) once
+ * before a scan loop and pass the result here to avoid repeated weight normalization.
+ */
+inline double weightedDistanceW(const AudioPrint& a, const AudioPrint& b, const NormWeights& w,
+                                const SearchParams& params) {
+    if (w.mfcc_fallback) {
+        return ssdFull(a.mfcc, b.mfcc);
+    }
+    double score = 0.0;
+    if (w.mfcc > 0.0) {
+        score += w.mfcc * ssdFull(a.mfcc, b.mfcc);
+    }
+    if (w.mel > 0.0) {
+        score += w.mel * ssdFull(a.mel, b.mel);
+    }
+    if (w.spectral > 0.0) {
+        const auto s0 = static_cast<std::size_t>(std::max(0, params.spectral_start));
+        const auto s1 = static_cast<std::size_t>(std::max(0, params.spectral_end));
+        score += w.spectral * ssd(a.spectral, b.spectral, s0, s1);
+    }
+    if (w.chroma > 0.0) {
+        score += w.chroma * ssdFull(a.chroma, b.chroma);
+    }
+    return score;
+}
+
+/**
+ * Weighted multi-feature distance between two AudioPrint bundles.
+ * Computes NormWeights inline — use weightedDistanceW with a precomputed NormWeights
+ * when calling inside a scan loop.
  */
 inline double weightedDistance(const AudioPrint& a, const AudioPrint& b,
                                const SearchParams& params) {
-    const double w_mfcc = std::max(0.0, params.mfcc_weight);
-    const double w_mel = std::max(0.0, params.mel_weight);
-    const double w_spectral = std::max(0.0, params.spectral_weight);
-    const double w_chroma = std::max(0.0, params.chroma_weight);
-    const double total_w = w_mfcc + w_mel + w_spectral + w_chroma;
-
-    if (total_w < 1e-12) {
-        return ssdFull(a.mfcc, b.mfcc);  // pure MFCC fallback
-    }
-
-    double score = 0.0;
-    if (w_mfcc > 0.0) {
-        score += (w_mfcc / total_w) * ssdFull(a.mfcc, b.mfcc);
-    }
-    if (w_mel > 0.0) {
-        score += (w_mel / total_w) * ssdFull(a.mel, b.mel);
-    }
-    if (w_spectral > 0.0) {
-        const auto s0 = static_cast<std::size_t>(std::max(0, params.spectral_start));
-        const auto s1 = static_cast<std::size_t>(std::max(0, params.spectral_end));
-        score += (w_spectral / total_w) * ssd(a.spectral, b.spectral, s0, s1);
-    }
-    if (w_chroma > 0.0) {
-        score += (w_chroma / total_w) * ssdFull(a.chroma, b.chroma);
-    }
-
-    return score;
+    return weightedDistanceW(a, b, NormWeights::from(params), params);
 }
 
 }  // namespace detail

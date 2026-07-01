@@ -16,6 +16,14 @@ class PocketfftBackend final : public port::IFft {
 public:
     [[nodiscard]] std::vector<ComplexValue> forward(std::span<const double> input) const override;
 
+    /**
+     * Non-allocating forward FFT: writes output into @p out (size ≥ input.size()/2+1).
+     *
+     * Writes directly into the caller-provided span via the thread-local scratch
+     * complex buffer — no intermediate allocation, no copy.
+     */
+    void forwardInto(std::span<const double> input, std::span<ComplexValue> out) const override;
+
     [[nodiscard]] std::vector<double> inverse(std::span<const ComplexValue> input,
                                               std::size_t output_size) const override;
 

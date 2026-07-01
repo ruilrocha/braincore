@@ -1,76 +1,64 @@
 # Search Strategies
 
-All strategies implement `ISearchStrategy` and can be swapped at runtime without stopping playback.
-Strategies that require a synapse graph (Synaptic, Markov) build it lazily on first use.
+All strategies implement `ISearchStrategy` and are swappable at runtime without stopping playback.
+The three strategies are exposed as `SearchStrategy::VpTree`, `Closest`, and `Synaptic` in
+`BrainEngineTypes.h`.
 
 ---
 
 ## VpTreeSearch *(default)*
 
-**Approximate nearest neighbour via a vantage-point tree.**
+**O(log N) nearest-neighbour via a Vantage-Point tree.**
 
-Builds a VP-tree at `buildIndex()` time and answers queries in O(log n). Produces the same
-result as `ClosestSearch` in virtually all cases but is dramatically faster for large brains.
+Queries the precomputed VP-tree to find the closest brain block to the target fingerprint
+without scanning all N blocks.  Produces the same result as `ClosestSearch` in virtually
+all cases but is dramatically faster for large brains (> ~2000 blocks).
 
-Used by default in the Swift iOS app ("Closest (optimised)").
+Both the VP-tree (`kNearest`) and the precomputed synapse table (`neighbors`) share the same
+`NearestNeighbourIndex` built by `Brain::buildIndex()` — there is no separate build step for
+VpTree vs Synaptic.
+
+Used by default.
 
 ---
 
 ## ClosestSearch
 
-**Brute-force O(n) scan.** Evaluates every block in the brain. Useful for debugging or
-very small brains where tree overhead dominates.
+**O(N) brute-force scan.** Evaluates every block in the brain.
 
----
-
-Both VpTree and ClosestSearch share the same parameters:
-
-| Parameter | Effect |
-|-----------|--------|
-| `mfcc_weight` / `mel_weight` / `spectral_weight` | Relative contribution of each fingerprint to the distance score |
-| `n_ratio` | 0 = amplitude-sensitive matching, 1 = amplitude-invariant |
-| `stickyness` | Bias toward the next sequential source block |
-| `usage_weight` | Penalise frequently-used blocks (novelty) |
-| `usage_falloff` | How fast usage penalty decays (boredom) |
+Useful for debugging or very small brains (< ~500 blocks) where tree overhead dominates.
+For large corpora, prefer VpTreeSearch.
 
 ---
 
 ## SynapticSearch
 
-**Deterministic walk through a pre-computed similarity graph.**
+**O(K) deterministic walk through the precomputed K-NN synapse graph.**
 
-Instead of scanning all blocks, evaluates only the pre-computed nearest neighbours (synapses)
-of the current block. Produces output that evolves smoothly through timbral space.
+Instead of scanning all blocks or querying the VP-tree, it evaluates only the K precomputed
+nearest-neighbours (synapses) of the current block.  This produces output that evolves
+smoothly through timbral space rather than jumping freely.
 
-Best for: smooth flowing transitions, large brains where O(n) is too slow.
+Requires `buildIndex()` to have been called (`Brain::hasIndex()` must be true).
 
-Key params: `num_synapses` (neighbourhood size), `usage_weight`.
+Key param: `num_synapses` — controls K (neighbourhood size) at build time.
 
----
-
-## MarkovChainSearch
-
-**Probabilistic walk over the synapse graph.**
-
-Like Synaptic, but samples probabilistically via softmax over synapse distances. More varied
-output that still flows through similar timbral regions.
-
-Best for: generative/infinite mode with controlled randomness.
-
-Key params: `temperature` (low = nearly deterministic, high = more random), `num_synapses`.
+Best for: smooth, flowing transitions through large corpora.
 
 ---
 
-## MomentumSearch
+## Shared parameters
 
-**Velocity-based trajectory through fingerprint space.**
+All three strategies respect the full `SearchParams` scoring:
 
-Tracks a velocity vector in fingerprint space. Output drifts smoothly in the direction it
-was already moving — like a ball rolling through the brain's timbral landscape.
-
-Best for: infinite mode; produces the smoothest, most cinematic evolution.
-
-Key params: `momentum` (0 = no inertia, 1 = full trajectory), `momentum_decay`.
+| Parameter | Effect |
+|-----------|--------|
+| `mfcc_weight` / `mel_weight` / `spectral_weight` / `chroma_weight` | Per-feature contribution to the distance score; weights are normalised internally |
+| `n_ratio` | 0 = amplitude-sensitive, 1 = amplitude-invariant (normalised fingerprints) |
+| `stickyness` | Bias toward the next sequential block for temporal coherence |
+| `usage_weight` | "Novelty" — penalise frequently-used blocks |
+| `usage_falloff` | "Boredom" — how fast the usage penalty decays per step |
+| `brightness_target` / `brightness_weight` | Bias block selection by spectral brightness (0=bass, 1=treble) |
 
 ---
 
@@ -78,10 +66,8 @@ Key params: `momentum` (0 = no inertia, 1 = full trajectory), `momentum_decay`.
 
 | Strategy | Speed | Best for |
 |----------|-------|----------|
-| VpTree | O(log n) | **Default — all modes** |
-| Closest | O(n) | Debugging, tiny brains |
-| Synaptic | O(k) | Smooth large-brain traversal |
-| Markov | O(k) | Generative mode with variety |
-| Momentum | O(n) | Cinematic infinite mode |
+| VpTree | O(log N) | **Default — all modes** |
+| Closest | O(N) | Debugging, tiny brains (< 500 blocks) |
+| Synaptic | O(K) | Smooth, connected traversal of large brains |
 
-`n` = total blocks, `k` = synapse count (typically 100–1000).
+`N` = total blocks, `K` = synapse count (default 50, set via `setNumSynapses()`).

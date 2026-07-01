@@ -137,6 +137,21 @@ public:
     [[nodiscard]] const port::IAnalyser& analyser() const { return *analyser_; }
     [[nodiscard]] const std::vector<Block>& blocks() const { return blocks_; }
 
+    /**
+     * Return a span into the contiguous mel row for block @p i.
+     *
+     * The matrix is flat, row-major (N × mel_dim), which allows O(N) distance
+     * scans to iterate sequentially through memory — no per-block pointer chase.
+     * Returns an empty span if @p i is out of range or no blocks have been loaded.
+     */
+    [[nodiscard]] std::span<const float> melRow(std::size_t i) const noexcept {
+        if (mel_dim_ == 0 || i >= blocks_.size()) {
+            return {};
+        }
+        return {mel_matrix_.data() + i * mel_dim_, mel_dim_};
+    }
+    [[nodiscard]] std::size_t melDim() const noexcept { return mel_dim_; }
+
     // ── Index accessors ─────────────────────────────────────────────────
 
     /** Returns true if buildIndex() has been called. */
@@ -166,6 +181,11 @@ private:
     std::vector<SourceSound> sources_;
     std::vector<bool>
         block_active_;  ///< Precomputed: true iff blocks_[i] belongs to an enabled source.
+
+    // Flat row-major mel matrix: blocks_.size() × mel_dim_ floats.
+    // Cache-friendly for O(N) distance scans — all mel vectors contiguous.
+    std::vector<float> mel_matrix_;
+    std::size_t mel_dim_ = 0;
 
     std::optional<NearestNeighbourIndex> index_;
 

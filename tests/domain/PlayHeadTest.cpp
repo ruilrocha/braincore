@@ -25,6 +25,7 @@ public:
                                             int /*sr*/) const override {
         audio::AudioPrint p;
         p.mfcc = {0.0f};
+        p.mel = {0.0f};
         p.spectral = {0.0f};
         return p;
     }

@@ -32,12 +32,28 @@ void OlaBuffer::accumulate(const std::vector<std::vector<float>>& channel_sample
 
     const std::size_t len = std::min(channel_samples[0].size(), block_size_);
 
+    // Split the write into at most two contiguous sub-ranges to avoid per-sample
+    // modulo. write_pos_ always advances by step_size_ ≤ block_size_ ≤ buf_size_,
+    // so the range [write_pos_, write_pos_ + len) wraps at most once.
+    const std::size_t wrap = buf_size_ - write_pos_;  // samples until buffer end
+
     for (std::size_t chi = 0; chi < nch; ++chi) {
         const auto& src = channel_samples[chi];
         const std::size_t ch_len = std::min(src.size(), len);
-        for (std::size_t i = 0; i < ch_len; ++i) {
-            const std::size_t pos = (write_pos_ + i) % buf_size_;
-            buffers_[chi][pos] += src[i] * window_coeffs_[i];
+
+        if (ch_len <= wrap) {
+            // No wrap — single contiguous range.
+            for (std::size_t i = 0; i < ch_len; ++i) {
+                buffers_[chi][write_pos_ + i] += static_cast<double>(src[i]) * window_coeffs_[i];
+            }
+        } else {
+            // Wraps once — two contiguous ranges.
+            for (std::size_t i = 0; i < wrap; ++i) {
+                buffers_[chi][write_pos_ + i] += static_cast<double>(src[i]) * window_coeffs_[i];
+            }
+            for (std::size_t i = wrap; i < ch_len; ++i) {
+                buffers_[chi][i - wrap] += static_cast<double>(src[i]) * window_coeffs_[i];
+            }
         }
     }
 
@@ -54,14 +70,32 @@ std::size_t OlaBuffer::read(std::vector<std::vector<double>>& out) {
         out.resize(nch);
     }
 
+    // Split into at most two contiguous sub-ranges to avoid per-sample modulo.
+    const std::size_t wrap = buf_size_ - read_pos_;  // samples until buffer end
+
     for (std::size_t chi = 0; chi < nch; ++chi) {
         if (out[chi].size() < step_size_) {
             out[chi].resize(step_size_);
         }
-        for (std::size_t i = 0; i < step_size_; ++i) {
-            const std::size_t pos = (read_pos_ + i) % buf_size_;
-            out[chi][i] = buffers_[chi][pos];
-            buffers_[chi][pos] = 0.0;  // zero consumed region
+        auto& buf = buffers_[chi];
+        auto& dst = out[chi];
+
+        if (step_size_ <= wrap) {
+            // No wrap.
+            for (std::size_t i = 0; i < step_size_; ++i) {
+                dst[i] = buf[read_pos_ + i];
+                buf[read_pos_ + i] = 0.0;
+            }
+        } else {
+            // Wraps once.
+            for (std::size_t i = 0; i < wrap; ++i) {
+                dst[i] = buf[read_pos_ + i];
+                buf[read_pos_ + i] = 0.0;
+            }
+            for (std::size_t i = wrap; i < step_size_; ++i) {
+                dst[i] = buf[i - wrap];
+                buf[i - wrap] = 0.0;
+            }
         }
     }
 

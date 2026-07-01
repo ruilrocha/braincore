@@ -116,6 +116,10 @@ void BrainSession::clear() noexcept {
     impl_->engine.clear();
 }
 
+void BrainSession::resetPlayback() noexcept {
+    impl_->engine.resetPlayback();
+}
+
 // ── Ingestion ─────────────────────────────────────────────────────────────────
 
 void BrainSession::addSamples(const double* samples, const std::size_t count, const int sample_rate,

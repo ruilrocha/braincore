@@ -1,6 +1,7 @@
 #include "NearestNeighbourIndex.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <ranges>
 #include <utility>
@@ -8,24 +9,41 @@
 
 namespace audio {
 
-void NearestNeighbourIndex::build(std::vector<std::vector<float>> points, DistFn dist,
-                                  std::size_t k) {
-    dist_ = std::move(dist);
-    items_ = std::move(points);
+// Euclidean distance between row i of the flat matrix and a query span.
+// Both operands are contiguous float arrays → auto-vectorizable by the compiler.
+double NearestNeighbourIndex::distToRow(std::size_t i,
+                                        std::span<const float> query) const noexcept {
+    const float* row_ptr = items_.data() + i * dim_;
+    const std::size_t len = std::min(dim_, query.size());
+    double sum = 0.0;
+    for (std::size_t k = 0; k < len; ++k) {
+        const double d = static_cast<double>(row_ptr[k]) - static_cast<double>(query[k]);
+        sum += d * d;
+    }
+    return std::sqrt(sum);
+}
+
+void NearestNeighbourIndex::build(std::vector<float> flat_matrix, std::size_t dim, std::size_t k) {
+    if (dim == 0 || flat_matrix.empty()) {
+        return;
+    }
+    n_items_ = flat_matrix.size() / dim;
+    dim_ = dim;
+    items_ = std::move(flat_matrix);
     k_ = k;
 
-    indices_.resize(items_.size());
-    for (std::size_t i = 0; i < indices_.size(); ++i) {
+    indices_.resize(n_items_);
+    for (std::size_t i = 0; i < n_items_; ++i) {
         indices_[i] = i;
     }
     nodes_.clear();
-    root_ = buildNode(0, indices_.size());
+    root_ = buildNode(0, n_items_);
 
     // Precompute K nearest neighbours for each stored point (skip self).
-    precomputed_.resize(items_.size());
-    for (std::size_t i = 0; i < items_.size(); ++i) {
-        auto candidates = kNearest(items_[i], k + 1);
-        // Remove self-match (the point itself appears at distance ≈ 0).
+    precomputed_.resize(n_items_);
+    for (std::size_t i = 0; i < n_items_; ++i) {
+        const std::span<const float> row_span(items_.data() + i * dim_, dim_);
+        auto candidates = kNearest(row_span, k + 1);
         if (auto it = std::ranges::find(candidates, i); it != candidates.end()) {
             candidates.erase(it);
         }
@@ -36,14 +54,14 @@ void NearestNeighbourIndex::build(std::vector<std::vector<float>> points, DistFn
     }
 }
 
-std::vector<std::size_t> NearestNeighbourIndex::kNearest(const std::vector<float>& query,
+std::vector<std::size_t> NearestNeighbourIndex::kNearest(std::span<const float> query,
                                                          std::size_t k) const {
-    if (items_.empty() || root_ == kNull) {
+    if (n_items_ == 0 || root_ == kNull) {
         return {};
     }
-    k = std::min(k, items_.size());
+    k = std::min(k, n_items_);
 
-    Heap heap;  // max-heap; keeps the k smallest
+    Heap heap;
     double tau = std::numeric_limits<double>::max();
 
     searchNode(root_, query, k, heap, tau);
@@ -54,7 +72,7 @@ std::vector<std::size_t> NearestNeighbourIndex::kNearest(const std::vector<float
         result.push_back(heap.top().second);
         heap.pop();
     }
-    std::ranges::reverse(result);  // closest first
+    std::ranges::reverse(result);
     return result;
 }
 
@@ -82,10 +100,12 @@ std::size_t NearestNeighbourIndex::buildNode(std::size_t begin, std::size_t end)
     }
 
     const std::size_t n = end - begin - 1;
+    const std::span<const float> vp_row(items_.data() + vp * dim_, dim_);
+
     std::vector<std::pair<double, std::size_t>> dists;
     dists.reserve(n);
     for (std::size_t i = begin; i < end - 1; ++i) {
-        dists.emplace_back(dist_(items_[vp], items_[indices_[i]]), i);
+        dists.emplace_back(distToRow(indices_[i], vp_row), i);
     }
 
     const std::size_t median_pos = n / 2;
@@ -115,14 +135,14 @@ std::size_t NearestNeighbourIndex::buildNode(std::size_t begin, std::size_t end)
     return node_idx;
 }
 
-void NearestNeighbourIndex::searchNode(std::size_t node_idx, const std::vector<float>& query,
+void NearestNeighbourIndex::searchNode(std::size_t node_idx, std::span<const float> query,
                                        std::size_t k, Heap& heap, double& tau) const {
     if (node_idx == kNull) {
         return;
     }
 
     const Node& node = nodes_[node_idx];
-    const double d = dist_(query, items_[node.vantage_idx]);
+    const double d = distToRow(node.vantage_idx, query);
 
     if (heap.size() < k) {
         heap.emplace(d, node.vantage_idx);
