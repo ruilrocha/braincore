@@ -25,6 +25,7 @@ public:
         audio::AudioPrint p;
         const auto mfcc_d = compute(b, sr);
         p.mfcc = std::vector<float>(mfcc_d.begin(), mfcc_d.end());
+        p.mel = p.mfcc;
         p.spectral = p.mfcc;
         return p;
     }

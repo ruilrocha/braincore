@@ -42,27 +42,48 @@ const MelFilterBank& MfccAnalyser::filterBank(const int sample_rate,
 
 namespace {
 
-struct FftResult {
+// Thread-local scratch buffers — reused across calls on both the ingest path
+// (serial or parallel, each thread has its own copy) and the real-time audio
+// thread. Eliminates 5+ heap allocations per analyse() call.
+struct AnalysisScratch {
     std::vector<double> magnitude;
+    std::vector<double> filter_output;
+    std::vector<double> mfcc_d;
+    std::vector<double> chroma_d;
+    std::vector<port::IFft::ComplexValue> complex_out;  // for forwardInto — no per-call alloc
+};
+
+AnalysisScratch& analysisScratch() {
+    thread_local AnalysisScratch s;
+    return s;
+}
+
+struct FftResult {
+    // half_n = num_input/2 + 1; magnitude is in the scratch buffer.
     std::size_t half_n;
 };
 
-FftResult runFft(const port::IFft& fft, const std::vector<double>& block) {
+FftResult runFft(const port::IFft& fft, const std::vector<double>& block,
+                 std::vector<double>& mag_scratch,
+                 std::vector<port::IFft::ComplexValue>& complex_scratch) {
     const auto half = (block.size() / 2) + 1;
-    const auto complex_out = fft.forward(block);
+    complex_scratch.resize(half);
 
-    std::vector<double> mag(half);
+    // forwardInto writes directly into the caller's buffer — no intermediate vector alloc.
+    fft.forwardInto(block, complex_scratch);
+
+    mag_scratch.resize(half);
     for (std::size_t k = 0; k < half; ++k) {
-        mag[k] = std::sqrt((complex_out[k].real * complex_out[k].real) +
-                           (complex_out[k].imag * complex_out[k].imag));
+        mag_scratch[k] = std::sqrt((complex_scratch[k].real * complex_scratch[k].real) +
+                                   (complex_scratch[k].imag * complex_scratch[k].imag));
     }
 
-    return {.magnitude = std::move(mag), .half_n = half};
+    return {.half_n = half};
 }
 
-std::vector<double> chromaFromMag(const std::vector<double>& mag, std::size_t fft_size,
-                                  int sample_rate) {
-    std::vector<double> chroma(12, 0.0);
+void chromaFromMag(const std::vector<double>& mag, std::size_t fft_size, int sample_rate,
+                   std::vector<double>& chroma_scratch) {
+    chroma_scratch.assign(12, 0.0);
     const double df = static_cast<double>(sample_rate) / static_cast<double>(fft_size);
 
     for (std::size_t k = 1; k < mag.size(); ++k) {
@@ -75,19 +96,18 @@ std::vector<double> chromaFromMag(const std::vector<double>& mag, std::size_t ff
         if (pc < 0) {
             pc += 12;
         }
-        chroma[static_cast<std::size_t>(pc)] += mag[k] * mag[k];
+        chroma_scratch[static_cast<std::size_t>(pc)] += mag[k] * mag[k];
     }
 
     double sum = 0.0;
-    for (const double energy : chroma) {
+    for (const double energy : chroma_scratch) {
         sum += energy;
     }
     if (sum > 1e-12) {
-        for (double& energy : chroma) {
+        for (double& energy : chroma_scratch) {
             energy /= sum;
         }
     }
-    return chroma;
 }
 
 }  // namespace
@@ -99,10 +119,11 @@ std::vector<double> MfccAnalyser::compute(const std::vector<double>& block,
     if (block.empty()) {
         throw std::invalid_argument("MfccAnalyser::compute: block must not be empty");
     }
-    auto [mag, half] = runFft(*fft_, block);
+    auto& sc = analysisScratch();
+    runFft(*fft_, block, sc.magnitude, sc.complex_out);
     const auto& bank = filterBank(sample_rate, block.size());
-    const auto filter_output = bank.apply(mag);
-    return fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));
+    sc.filter_output = bank.apply(sc.magnitude);
+    return fft_->dct(sc.filter_output, static_cast<std::size_t>(num_mfcc_));
 }
 
 // ── Full analysis ──────────────────────────────────────────────────────
@@ -113,17 +134,19 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
     }
 
     AudioPrint fp;
+    auto& sc = analysisScratch();
 
-    auto [mag, half] = runFft(*fft_, block);
+    runFft(*fft_, block, sc.magnitude, sc.complex_out);
+    const auto& mag = sc.magnitude;
 
     // ── Primary: MFCC (via cached filter bank) ─────────────────────────
     const auto& bank = filterBank(sample_rate, block.size());
-    const auto filter_output = bank.apply(mag);
-    const auto mfcc_d = fft_->dct(filter_output, static_cast<std::size_t>(num_mfcc_));
+    sc.filter_output = bank.apply(mag);
+    const auto mfcc_d = fft_->dct(sc.filter_output, static_cast<std::size_t>(num_mfcc_));
     fp.mfcc.assign(mfcc_d.begin(), mfcc_d.end());  // narrow double→float
 
     // ── Mel filter-bank log energies ───────────────────────────────────
-    fp.mel.assign(filter_output.begin(), filter_output.end());  // narrow double→float
+    fp.mel.assign(sc.filter_output.begin(), sc.filter_output.end());  // narrow double→float
 
     // ── Spectral: FFT magnitude bins ───────────────────────────────────
     const auto target_bins =
@@ -137,10 +160,10 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
         const double ratio = static_cast<double>(mag.size()) / static_cast<double>(target_bins);
         for (std::size_t i = 0; i < target_bins; ++i) {
             const auto start = static_cast<std::size_t>(static_cast<double>(i) * ratio);
-            const auto end = static_cast<std::size_t>(static_cast<double>(i + 1) * ratio);
+            const auto end_i = static_cast<std::size_t>(static_cast<double>(i + 1) * ratio);
             double sum = 0.0;
-            const std::size_t count = end > start ? end - start : 1;
-            for (std::size_t j = start; j < end && j < mag.size(); ++j) {
+            const std::size_t count = end_i > start ? end_i - start : 1;
+            for (std::size_t j = start; j < end_i && j < mag.size(); ++j) {
                 sum += mag[j];
             }
             fp.spectral[i] = static_cast<float>(sum / static_cast<double>(count));
@@ -163,8 +186,8 @@ AudioPrint MfccAnalyser::analyse(const std::vector<double>& block, const int sam
     }
 
     // ── Chroma (free — reuses mag already computed) ────────────────────
-    const auto chroma_d = chromaFromMag(mag, block.size(), sample_rate);
-    fp.chroma.assign(chroma_d.begin(), chroma_d.end());  // narrow double→float
+    chromaFromMag(mag, block.size(), sample_rate, sc.chroma_d);
+    fp.chroma.assign(sc.chroma_d.begin(), sc.chroma_d.end());  // narrow double→float
 
     return fp;
 }

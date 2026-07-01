@@ -127,6 +127,12 @@ public:
     /** Remove all ingested sounds and reset playback state. Preserves config. */
     void clear() noexcept;
 
+    /**
+     * Reset playback state (PlayHead position, usage counters, drift) without
+     * clearing the brain index. Safe to call between plays for a fresh start.
+     */
+    void resetPlayback() noexcept;
+
     /** True if the Brain has been initialised (after the first addSound call). */
     [[nodiscard]] bool hasBrain() const noexcept;
 

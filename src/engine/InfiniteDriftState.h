@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../domain/BlockAnalysis.h"
+#include "../domain/SearchParams.h"
 
 #include <cstddef>
 #include <vector>
@@ -43,8 +44,21 @@ public:
     /**
      * Advance drift after a block was matched.
      *
-     * Copies the matched block's fingerprint with a small noise perturbation
-     * as the next search target.
+     * Selects the next drift target from the precomputed K-NN neighbours of
+     * @p matched_idx using a blend of timbral proximity and freshness:
+     *
+     *   score = (1 − usage_weight) × mel_distance(matched, neighbour)
+     *         + usage_weight × (usage[neighbour] / kUsageFactor)
+     *
+     *   - usage_weight ≈ 0 → always walks to the nearest neighbour (smooth "swimming")
+     *   - usage_weight ≈ 1 → prefers the freshest neighbour (novelty-directed)
+     *
+     * The previous matched block is excluded from consideration to prevent
+     * immediate backtracking (A→B→A oscillation), which is the primary cause
+     * of stutter at low usage_weight.
+     *
+     * Falls back to matched + noise when no index is built or no eligible
+     * neighbours remain (tiny brain).
      *
      * Reinitialises from noise if:
      *  - The same block index has been returned more than kStuckThreshold
@@ -52,15 +66,16 @@ public:
      *  - More than kLowEnergyEscapeSteps consecutive low-energy blocks have
      *    been returned (trapped in a silence cluster).
      *
-     * Brief silence (fewer than kLowEnergyEscapeSteps blocks) is allowed.
-     *
      * @param matched_print  AudioPrint of the matched block.
      * @param matched_idx    Index of the matched block.
-     * @param brain          Brain (used for reinit if stuck/silent).
+     * @param brain          Brain (used for neighbour lookup and reinit).
+     * @param block_usages   Per-block usage counters from PlayHead.
+     * @param params         Current search parameters (usage_weight used here).
      * @return               true if the state was reseeded this step.
      */
     bool updateFromMatch(const AudioPrint& matched_print, std::size_t matched_idx,
-                         const Brain& brain);
+                         const Brain& brain, const std::vector<double>& block_usages,
+                         const SearchParams& params);
 
     /** The fingerprint to use as the target on the next advance call. */
     [[nodiscard]] const BlockAnalysis& currentTarget() const noexcept { return drift_print_; }

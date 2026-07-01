@@ -33,6 +33,23 @@ public:
         std::span<const double> input) const = 0;
 
     /**
+     * Non-allocating forward FFT: writes output into a caller-provided span.
+     *
+     * @param input   Real-valued time-domain samples.
+     * @param out     Caller-preallocated output buffer, size must be ≥ (input.size()/2 + 1).
+     *
+     * Default implementation delegates to `forward()` and copies — override in
+     * concrete adapters to avoid the intermediate allocation.
+     */
+    virtual void forwardInto(std::span<const double> input, std::span<ComplexValue> out) const {
+        const auto result = forward(input);
+        const std::size_t n = std::min(result.size(), out.size());
+        for (std::size_t i = 0; i < n; ++i) {
+            out[i] = result[i];
+        }
+    }
+
+    /**
      * Complex-to-real inverse FFT.
      *
      * @param input       Complex spectrum (from forward()).

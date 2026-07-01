@@ -79,6 +79,12 @@ public:
     /** Clear all ingested sounds and reset the Brain, preserving config settings. */
     void clear() noexcept;
 
+    /**
+     * Reset playback state (position, usage counters, drift) without rebuilding
+     * the brain index. Call after stop() so the next play() starts fresh.
+     */
+    void resetPlayback() noexcept;
+
     // ── Search strategy (reprocess target only) ───────────────────────
 
     void setSearchStrategy(SearchStrategy strategy);

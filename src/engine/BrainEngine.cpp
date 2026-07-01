@@ -252,6 +252,16 @@ void BrainEngine::clear() noexcept {
     impl_->clear();
 }
 
+void BrainEngine::resetPlayback() noexcept {
+    if (impl_->play_head) {
+        impl_->play_head->reset();
+    }
+    impl_->drift.reset();
+    if (impl_->output) {
+        impl_->output->reset();
+    }
+}
+
 bool BrainEngine::hasBrain() const noexcept {
     return static_cast<bool>(impl_->brain);
 }
@@ -302,7 +312,7 @@ std::size_t BrainEngine::advanceInfinite(const int /*sample_rate*/) {
     const std::size_t matched = impl_->play_head->advance(impl_->drift.currentTarget(), sp);
 
     impl_->drift.updateFromMatch(impl_->brain->blocks()[matched].analysis.print, matched,
-                                 *impl_->brain);
+                                 *impl_->brain, impl_->play_head->blockUsages(), sp);
 
     if (impl_->output) {
         impl_->output->push(matched, impl_->brain->blocks()[matched].channel_samples);

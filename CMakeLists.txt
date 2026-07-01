@@ -44,6 +44,31 @@ target_include_directories(braincore-lib PUBLIC
 
 target_link_libraries(braincore-lib PUBLIC pocketfft::pocketfft)
 
+# ═══════════════════════════════════════════════════════════════════════
+# DSP release-build flags
+# ═══════════════════════════════════════════════════════════════════════
+# -ffp-contract=fast enables FMA (fused multiply-add) without reordering
+# NaN/Inf handling or breaking IEEE semantics the way -ffast-math does.
+# Applied only in Release to keep debug builds bit-reproducible.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(braincore-lib PRIVATE
+        $<$<CONFIG:Release>:-ffp-contract=fast>
+    )
+endif()
+
+# Optional LTO — off by default to keep iOS/cross-build link times short.
+option(BRAINCORE_ENABLE_LTO "Enable interprocedural (link-time) optimisation for braincore-lib" OFF)
+if(BRAINCORE_ENABLE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT _ipo_ok OUTPUT _ipo_err)
+    if(_ipo_ok)
+        message(STATUS "LTO enabled for braincore-lib")
+        set_property(TARGET braincore-lib PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+    else()
+        message(WARNING "LTO requested but not supported: ${_ipo_err}")
+    endif()
+endif()
+
 # Platform-specific libs.
 if(UNIX AND NOT APPLE)
     find_package(Threads REQUIRED)
@@ -68,6 +93,27 @@ target_link_libraries(braincore-tests PRIVATE
 )
 include(GoogleTest)
 gtest_discover_tests(braincore-tests)
+
+# ═══════════════════════════════════════════════════════════════════════
+# braincore-bench  (Google Benchmark micro-benchmarks)
+# Opt-in: cmake … -DENABLE_BENCHMARKS=ON  [default: OFF]
+# Usage:  cmake --build --preset conan-debug --target braincore-bench
+#         ./cmake-build-debug/conan/build/Debug/braincore-bench
+# ═══════════════════════════════════════════════════════════════════════
+option(ENABLE_BENCHMARKS "Build Google Benchmark micro-benchmarks" OFF)
+
+if(ENABLE_BENCHMARKS)
+    find_package(benchmark REQUIRED)
+    message(STATUS "Benchmarks enabled — building braincore-bench")
+
+    file(GLOB_RECURSE BENCH_SOURCES "bench/*.cpp")
+    add_executable(braincore-bench ${BENCH_SOURCES})
+    target_include_directories(braincore-bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(braincore-bench PRIVATE
+        braincore-lib
+        benchmark::benchmark_main
+    )
+endif()
 
 # ═══════════════════════════════════════════════════════════════════════
 # AddressSanitizer  (opt-in: cmake … -DENABLE_ASAN=ON)
